@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cajitas de Dani - ¡A Jugar!</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        body {
+            font-family: 'Comic Neue', 'Inter', sans-serif;
+        }
+        .line-slot {
+            cursor: pointer;
+            fill: rgba(0,0,0,0.03);
+            transition: fill 0.2s;
+        }
+        .line-slot:hover {
+            fill: rgba(128, 0, 128, 0.2);
+        }
+        .line-slot.disabled-slot:hover { /* Style for when board is not clickable */
+            fill: rgba(0,0,0,0.03);
+            cursor: default;
+        }
+        .line-drawn {
+            stroke-linecap: round;
+            transition: stroke-dashoffset 0.4s ease-out, opacity 0.3s ease-out;
+        }
+        .box-text {
+            font-weight: bold;
+            text-anchor: middle;
+            dominant-baseline: middle;
+            pointer-events: none;
+        }
+        .box-filled-anim {
+            transition: transform 0.35s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+        }
+        .box-text-anim {
+            transition: transform 0.35s cubic-bezier(0.68, -0.55, 0.27, 1.55), opacity 0.3s ease-out;
+            transition-delay: 0.05s;
+        }
+        #game-board-svg {
+            touch-action: none;
+        }
+        .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); }
+        .modal-content { background-color: #fff0f5; margin: 10% auto; padding: 25px; border: 2px solid #ffb6c1; width: 90%; max-width: 450px; border-radius: 12px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+        .modal-close-button { background-color: #FF69B4; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; margin-top: 20px; font-weight: bold; transition: background-color 0.2s; }
+        .modal-close-button:hover { background-color: #FF1493; }
+
+        .player-setup-card {
+            border: 2px solid;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            background-color: #fdf4f6;
+        }
+        .player-setup-card label {
+            display: block;
+            margin-bottom: 4px;
+            font-weight: bold;
+        }
+        .player-setup-card input[type="text"],
+        .player-setup-card select,
+        .player-setup-card input[type="color"] {
+            width: 100%;
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            margin-bottom: 8px;
+            box-sizing: border-box;
+        }
+        .player-setup-card input[type="color"] {
+            height: 40px;
+        }
+        #undo-btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+        /* Basic styling for network buttons */
+        .network-btn {
+            background-color: #8A2BE2; /* Purple to match dots */
+            color: white;
+            font-weight: bold;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-top: 5px;
+            margin-right: 5px;
+            transition: background-color 0.2s;
+        }
+        .network-btn:hover {
+            background-color: #6A1B9A;
+        }
+        #network-info-area.hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-pink-50 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div id="game-container" class="bg-white shadow-xl rounded-lg p-4 sm:p-8 w-full max-w-2xl">
+        <h1 id="main-title" class="text-3xl sm:text-4xl font-bold text-center text-pink-600 mb-6" style="font-family: 'Comic Neue', cursive;">Cajitas de Dani</h1>
+
+        <div id="setup-section" class="space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label for="rows" class="block text-sm font-medium text-gray-700">Filas de Puntos (2-10):</label>
+                    <input type="number" id="rows" name="rows" value="4" min="2" max="10" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm">
+                </div>
+                <div>
+                    <label for="cols" class="block text-sm font-medium text-gray-700">Columnas de Puntos (2-10):</label>
+                    <input type="number" id="cols" name="cols" value="4" min="2" max="10" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm">
+                </div>
+            </div>
+            <div>
+                <label for="num-players-input" class="block text-sm font-medium text-gray-700">Cantidad de Jugadores/as (2-4 Local, 2 Remoto):</label>
+                <input type="number" id="num-players-input" name="num-players-input" value="2" min="2" max="4" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm">
+            </div>
+
+            <div id="player-customization-area" class="mt-4 space-y-3">
+                </div>
+
+            <button id="start-game-btn" class="w-full bg-pink-500 hover:bg-pink-600 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-150 ease-in-out text-lg mt-4">
+                ¡Empezar Juego Local! ✨
+            </button>
+
+            <div class="mt-6 pt-4 border-t border-pink-200">
+                <h2 class="text-xl font-semibold text-center text-purple-700 mb-3">Jugar en Red 🌐</h2>
+                <div class="flex flex-wrap justify-center gap-3">
+                    <button id="host-cajitas-btn" class="network-btn">Hostear Juego de Cajitas 🏰</button>
+                    <button id="join-cajitas-btn" class="network-btn">Unirse a Juego de Cajitas 🚪</button>
+                    </div>
+            </div>
+
+            <div id="network-info-area" class="mt-4 p-4 bg-pink-100 rounded-lg text-center hidden">
+                <h3 class="text-lg font-semibold text-pink-700">Juego Remoto Iniciado</h3>
+                <div id="qr-code-container" class="my-2 inline-block bg-white p-2 rounded shadow"></div>
+                <p id="game-id-display" class="text-md text-gray-700 font-mono break-all p-2 bg-white rounded"></p>
+                <button id="copy-game-id-btn" class="mt-2 bg-blue-500 hover:bg-blue-600 text-white text-sm py-2 px-4 rounded shadow-md">Copiar ID</button>
+                </div>
+        </div>
+
+        <div id="game-area" class="hidden">
+            <div id="info-panel" class="mb-4 p-3 bg-pink-50 rounded-lg shadow">
+                <div id="player-turn" class="text-xl font-bold text-center mb-2"></div>
+                <div id="scores" class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-center">
+                    </div>
+            </div>
+
+            <div class="aspect-square w-full max-w-xl mx-auto bg-purple-100 rounded-md overflow-hidden shadow-inner">
+                 <svg id="game-board-svg" class="w-full h-full"></svg>
+            </div>
+
+            <div id="message-area" class="mt-4 text-center text-md font-medium text-red-500 h-6"></div>
+
+            <div class="flex space-x-2 mt-6">
+                <button id="undo-btn" class="w-1/2 bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-150 ease-in-out text-lg">
+                    Deshacer ↩️
+                </button>
+                <button id="reset-game-btn" class="w-1/2 bg-amber-400 hover:bg-amber-500 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-150 ease-in-out text-lg">
+                    Juego Nuevo 💖
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="custom-modal" class="modal">
+        <div class="modal-content">
+            <p id="modal-message-text" class="text-lg text-gray-700"></p>
+            <button id="modal-close-btn" class="modal-close-button">¡Dale!</button>
+            <div id="modal-dynamic-buttons" class="mt-4 flex justify-center space-x-4"></div>
+        </div>
+    </div>
+
+    <script src="peerjs-multiplayer.js"></script>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
