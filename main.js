@@ -1,5 +1,9 @@
 // main.js -- Main Application Orchestrator for Cajitas de Dani
 
+// VERY EARLY LOG: What is the URL when the script first runs?
+console.log("[Main - Pre-DOM] Initial window.location.href:", window.location.href);
+console.log("[Main - Pre-DOM] Initial window.location.search:", window.location.search);
+
 import * as state from './state.js';
 import * as ui from './ui.js';
 import * as gameLogic from './gameLogic.js';
@@ -9,7 +13,11 @@ import * as matchmaking from './matchmaking_supabase.js';
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log("Cajitas de Dani: DOM fully loaded and parsed");
+    console.log("[Main - DOMContentLoaded] window.location.href:", window.location.href);
+    console.log("[Main - DOMContentLoaded] window.location.search:", window.location.search);
 
+
+    // --- Initial UI Setup ---
     ui.showSetupScreen();
     if (ui.numPlayersInput) {
         ui.generatePlayerSetupFields(parseInt(ui.numPlayersInput.value));
@@ -17,6 +25,8 @@ document.addEventListener('DOMContentLoaded', () => {
     ui.updateGameModeUI();
     if (ui.undoBtn) ui.undoBtn.disabled = true;
 
+
+    // --- Event Listeners for Setup ---
     ui.startGameBtn?.addEventListener('click', async () => {
         if (!state.soundsInitialized) {
             await sound.initSounds();
@@ -49,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // --- Modal Listeners ---
     ui.modalCloseBtn?.addEventListener('click', () => {
         if (state.soundsInitialized) sound.playSound(sound.modalCloseSound, "C2", "32n");
         ui.hideModalMessage();
@@ -60,6 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // --- Network Play Button Event Listeners ---
     const hostButton = document.getElementById('host-cajitas-btn');
     hostButton?.addEventListener('click', async () => {
         if (!state.soundsInitialized) await sound.initSounds();
@@ -79,8 +91,6 @@ document.addEventListener('DOMContentLoaded', () => {
         peerConnection.initializePeerAsHost(stopAnyActiveGameAndMatchmaking);
         ui.updateGameModeUI();
     });
-
-    // const joinButton = document.getElementById('join-cajitas-btn'); // REMOVED - This button is replaced by playRandom and URL join
 
     const playRandomButton = document.getElementById('play-random-cajitas-btn');
     playRandomButton?.addEventListener('click', async () => {
@@ -114,7 +124,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     matchmaking.joinQueue(localPeerId, {
                         onSearching: () => {
                             ui.updateMessageArea("Buscando oponente en la red...");
-                            // cancelMatchmakingButton visibility is handled by its own listener now or by updateGameModeUI
                         },
                         onMatchFound: (opponentRawPeerId) => {
                             ui.hideModalMessage();
@@ -197,21 +206,29 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function checkUrlForRoomAndJoin() {
+        console.log("[Main - checkUrlForRoomAndJoin START] Current href:", window.location.href);
+        console.log("[Main - checkUrlForRoomAndJoin START] Current search:", window.location.search);
+
         const urlParams = new URLSearchParams(window.location.search);
         const roomIdFromUrl = urlParams.get('room');
-        console.log("[Main] URL Join Check: roomIdFromUrl =", roomIdFromUrl);
+        console.log("[Main] URL Join Check: roomIdFromUrl Extracted:", roomIdFromUrl);
 
         if (roomIdFromUrl && roomIdFromUrl.startsWith('cajitas-')) {
-            console.log("[Main] URL Join Check: Valid 'cajitas-' room ID found. Attempting to join...");
+            console.log("[Main] URL Join Check: Valid 'cajitas-' room ID found:", roomIdFromUrl, ". Attempting to join...");
             const attemptSoundAndJoin = async () => {
                 if (!state.soundsInitialized) {
-                    await sound.initSounds().catch(e => console.warn("Sound init on URL join needs user gesture.", e));
+                    // Attempt to initialize sounds, user might need to click for this to fully work on first load
+                    try {
+                        await sound.initSounds();
+                    } catch(e) {
+                        console.warn("Sound init on URL join needs user gesture or prior interaction.", e);
+                    }
                 }
                 
                 stopAnyActiveGameAndMatchmaking(true);
 
-                if(ui.setupSection) ui.setupSection.classList.add('hidden'); // Ensure setup is hidden
-                if(ui.gameArea) ui.gameArea.classList.remove('hidden');    // Ensure game area is visible
+                if(ui.setupSection) ui.setupSection.classList.add('hidden');
+                if(ui.gameArea) ui.gameArea.classList.remove('hidden');
                 ui.updateMessageArea(`Conectando a la sala ${roomIdFromUrl}...`);
                 if(ui.mainTitle) ui.mainTitle.textContent = "Uniéndose a Partida...";
 
@@ -232,21 +249,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 ui.updateScoresDisplay();
 
                 peerConnection.initializePeerAsJoiner(roomIdFromUrl, stopAnyActiveGameAndMatchmaking);
-                
-                // updateGameModeUI is called within initializePeerAsJoiner indirectly
-                // and also by connection events, so it should adapt.
-                
+                                
                 window.history.replaceState({}, document.title, window.location.pathname);
+                console.log("[Main] URL Join: Cleared room parameter from URL.");
             };
             attemptSoundAndJoin();
         } else {
+            console.log("[Main] URL Join Check: No valid 'cajitas-' room ID found in URL or roomIdFromUrl is null.");
             peerConnection.ensurePeerInitialized({
-                onPeerOpen: (id) => console.log('[Main] PeerJS session pre-initialized on load. ID:', id),
-                onError: (err) => console.warn('[Main] Benign PeerJS pre-init error:', err.type)
+                onPeerOpen: (id) => console.log('[Main] PeerJS session pre-initialized on load (no room in URL). ID:', id),
+                onError: (err) => console.warn('[Main] Benign PeerJS pre-init error (no room in URL):', err.type)
             });
         }
     }
 
+    // Call checkUrlForRoomAndJoin after the initial setup UI might have been shown by DOMContentLoaded.
+    // DOMContentLoaded ensures that basic DOM elements are available.
     checkUrlForRoomAndJoin();
     console.log("Cajitas de Dani: Main script initialized.");
 });
