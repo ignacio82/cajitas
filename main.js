@@ -1,4 +1,4 @@
-// main.js -- FIXED VERSION - Main Application Orchestrator for Cajitas de Dani
+// main.js -- COMPLETE FIXED VERSION - Main Application Orchestrator for Cajitas de Dani
 
 // VERY EARLY LOG: What is the URL when the script first runs?
 console.log("[Main - Pre-DOM] Initial window.location.href:", window.location.href);
@@ -214,6 +214,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // FIXED: Check for any room ID, not just ones with 'cajitas-' prefix
         if (roomIdFromUrl && roomIdFromUrl.trim()) {
             console.log("[Main] URL Join Check: Valid room ID found:", roomIdFromUrl, ". Attempting to join...");
+            
+            // CRITICAL FIX: Initialize sound and join immediately
             const attemptSoundAndJoin = async () => {
                 if (!state.soundsInitialized) {
                     try {
@@ -223,13 +225,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
                 
+                // Stop any existing connections
                 stopAnyActiveGameAndMatchmaking(true);
 
-                if(ui.setupSection) ui.setupSection.classList.add('hidden');
-                if(ui.gameArea) ui.gameArea.classList.remove('hidden');
-                ui.updateMessageArea(`Conectando a la sala ${roomIdFromUrl}...`);
-                if(ui.mainTitle) ui.mainTitle.textContent = "Uniéndose a Partida...";
-
+                // Set up for network game
                 if(ui.numPlayersInput) ui.numPlayersInput.value = "2";
                 state.setNumPlayers(2);
                 ui.generatePlayerSetupFields(2);
@@ -238,22 +237,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 const joinerIcon = document.getElementById('player-icon-0')?.value || state.AVAILABLE_ICONS[1];
                 const joinerColor = document.getElementById('player-color-0')?.value || state.DEFAULT_PLAYER_COLORS[1];
 
+                // Set up player data for joiner
                 state.setPlayersData([
                      {id: 0, name: "Host (Conectando)", icon: "❓", color: "#cccccc", score: 0},
                      {id: 1, name: joinerName, icon: joinerIcon, color: joinerColor, score: 0}
                 ]);
                 state.setRemotePlayersData([...state.playersData]);
+                
+                // Show game screen and update UI
+                ui.showGameScreen();
                 ui.updateScoresDisplay();
+                ui.updateMessageArea(`Conectando a la sala ${roomIdFromUrl}...`);
+                if(ui.mainTitle) ui.mainTitle.textContent = "Uniéndose a Partida...";
 
-                // FIXED: Pass the raw room ID directly (no prefix manipulation)
+                // FIXED: Pass the raw room ID directly to the joiner function
                 peerConnection.initializePeerAsJoiner(roomIdFromUrl, stopAnyActiveGameAndMatchmaking);
                                 
+                // Clear the URL parameter after processing
                 window.history.replaceState({}, document.title, window.location.pathname);
                 console.log("[Main] URL Join: Cleared room parameter from URL.");
             };
+            
+            // Execute join logic immediately
             attemptSoundAndJoin();
+            
         } else {
             console.log("[Main] URL Join Check: No valid room ID found in URL or roomIdFromUrl is null.");
+            // Pre-initialize PeerJS for potential future use
             peerConnection.ensurePeerInitialized({
                 onPeerOpen: (id) => console.log('[Main] PeerJS session pre-initialized on load (no room in URL). ID:', id),
                 onError: (err) => console.warn('[Main] Benign PeerJS pre-init error (no room in URL):', err.type)
@@ -261,8 +271,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Call checkUrlForRoomAndJoin after the initial setup UI might have been shown by DOMContentLoaded.
-    // DOMContentLoaded ensures that basic DOM elements are available.
+    // CRITICAL: Call this function right after DOM is loaded
+    // This ensures URL joining happens immediately when someone scans the QR code
     checkUrlForRoomAndJoin();
     console.log("Cajitas de Dani: Main script initialized.");
 });
