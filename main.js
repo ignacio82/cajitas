@@ -10,16 +10,13 @@ import * as matchmaking from './matchmaking_supabase.js';
 document.addEventListener('DOMContentLoaded', () => {
     console.log("Cajitas de Dani: DOM fully loaded and parsed");
 
-    // --- Initial UI Setup ---
-    ui.showSetupScreen(); // Show setup initially
+    ui.showSetupScreen();
     if (ui.numPlayersInput) {
         ui.generatePlayerSetupFields(parseInt(ui.numPlayersInput.value));
     }
     ui.updateGameModeUI();
     if (ui.undoBtn) ui.undoBtn.disabled = true;
 
-
-    // --- Event Listeners for Setup ---
     ui.startGameBtn?.addEventListener('click', async () => {
         if (!state.soundsInitialized) {
             await sound.initSounds();
@@ -35,7 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ui.resetGameBtn?.addEventListener('click', () => {
         if (state.soundsInitialized) sound.playSound(sound.uiClickSound, "E3", "16n");
         stopAnyActiveGameAndMatchmaking();
-        gameLogic.resetGame(true); // true to go back to setup screen
+        gameLogic.resetGame(true);
     });
 
     ui.undoBtn?.addEventListener('click', () => {
@@ -52,7 +49,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- Modal Listeners ---
     ui.modalCloseBtn?.addEventListener('click', () => {
         if (state.soundsInitialized) sound.playSound(sound.modalCloseSound, "C2", "32n");
         ui.hideModalMessage();
@@ -64,7 +60,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- Network Play Button Event Listeners ---
     const hostButton = document.getElementById('host-cajitas-btn');
     hostButton?.addEventListener('click', async () => {
         if (!state.soundsInitialized) await sound.initSounds();
@@ -85,34 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ui.updateGameModeUI();
     });
 
-    const joinButton = document.getElementById('join-cajitas-btn');
-    joinButton?.addEventListener('click', async () => {
-        if (!state.soundsInitialized) await sound.initSounds();
-        if (state.soundsInitialized) sound.playSound(sound.uiClickSound, "C4", "16n");
-
-        stopAnyActiveGameAndMatchmaking();
-
-        const rawHostId = prompt("Ingresá el ID del Host para unirte a la partida de Cajitas (debe empezar con 'cajitas-'):");
-        if (rawHostId && rawHostId.trim().startsWith('cajitas-')) {
-            if(ui.numPlayersInput) ui.numPlayersInput.value = "2";
-            state.setNumPlayers(2);
-            ui.generatePlayerSetupFields(2);
-
-            const joinerName = document.getElementById('player-name-0')?.value || 'Jugador 2';
-            const joinerIcon = document.getElementById('player-icon-0')?.value || state.AVAILABLE_ICONS[1];
-            const joinerColor = document.getElementById('player-color-0')?.value || state.DEFAULT_PLAYER_COLORS[1];
-            
-            state.setPlayersData([
-                {id: 0, name: "Host (Esperando)", icon: "❓", color: "#cccccc", score: 0},
-                {id: 1, name: joinerName, icon: joinerIcon, color: joinerColor, score: 0}
-            ]);
-
-            peerConnection.initializePeerAsJoiner(rawHostId.trim(), stopAnyActiveGameAndMatchmaking);
-            ui.updateGameModeUI();
-        } else {
-            ui.showModalMessage("ID del Host inválido. Debe empezar con 'cajitas-' y no estar vacío.");
-        }
-    });
+    // const joinButton = document.getElementById('join-cajitas-btn'); // REMOVED - This button is replaced by playRandom and URL join
 
     const playRandomButton = document.getElementById('play-random-cajitas-btn');
     playRandomButton?.addEventListener('click', async () => {
@@ -140,13 +108,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         {id: 0, name: myName, icon: myIcon, color: myColor, score: 0},
                         {id: 1, name: "Oponente", icon: "❓", color: state.DEFAULT_PLAYER_COLORS[1], score: 0}
                     ]);
-                    state.setRemotePlayersData([...state.playersData]); // Initialize remotePlayersData as well
-                    ui.updateScoresDisplay(); // Show initial (potentially placeholder) scores
+                    state.setRemotePlayersData([...state.playersData]);
+                    ui.updateScoresDisplay();
 
                     matchmaking.joinQueue(localPeerId, {
                         onSearching: () => {
                             ui.updateMessageArea("Buscando oponente en la red...");
-                            if (ui.cancelMatchmakingButton) ui.cancelMatchmakingButton.classList.remove('hidden'); // Should be visible
+                            // cancelMatchmakingButton visibility is handled by its own listener now or by updateGameModeUI
                         },
                         onMatchFound: (opponentRawPeerId) => {
                             ui.hideModalMessage();
@@ -213,11 +181,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function stopAnyActiveGameAndMatchmaking(preserveUIScreen = false) {
-        if (state.gameActive && !preserveUIScreen) { // Only reset to setup if not preserving screen
-            gameLogic.resetGame(true); // true to go fully back to setup
+        if (state.gameActive && !preserveUIScreen) {
+            gameLogic.resetGame(true);
         } else if (state.gameActive) {
-            state.setGameActive(false); // At least deactivate game
-            // Consider if other parts of gameLogic.resetGame are needed without UI change
+            state.setGameActive(false);
         }
         matchmaking.leaveQueue();
         peerConnection.closePeerSession();
@@ -241,20 +208,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     await sound.initSounds().catch(e => console.warn("Sound init on URL join needs user gesture.", e));
                 }
                 
-                // Stop previous activities but preserve the UI from going back to full setup screen.
-                // We want to show a "connecting" state on the current view if possible, or transition quickly.
-                stopAnyActiveGameAndMatchmaking(true); // true to preserve UI screen
+                stopAnyActiveGameAndMatchmaking(true);
 
-                // Hide setup, show game area with a connecting message
-                ui.setupSection.classList.add('hidden');
-                ui.gameArea.classList.remove('hidden');
+                if(ui.setupSection) ui.setupSection.classList.add('hidden'); // Ensure setup is hidden
+                if(ui.gameArea) ui.gameArea.classList.remove('hidden');    // Ensure game area is visible
                 ui.updateMessageArea(`Conectando a la sala ${roomIdFromUrl}...`);
                 if(ui.mainTitle) ui.mainTitle.textContent = "Uniéndose a Partida...";
 
 
                 if(ui.numPlayersInput) ui.numPlayersInput.value = "2";
                 state.setNumPlayers(2);
-                ui.generatePlayerSetupFields(2); // Setup fields for 2 players, though joiner uses only first set for their info
+                ui.generatePlayerSetupFields(2);
 
                 const joinerName = document.getElementById('player-name-0')?.value || 'Jugador URL';
                 const joinerIcon = document.getElementById('player-icon-0')?.value || state.AVAILABLE_ICONS[1];
@@ -264,23 +228,18 @@ document.addEventListener('DOMContentLoaded', () => {
                      {id: 0, name: "Host (Conectando)", icon: "❓", color: "#cccccc", score: 0},
                      {id: 1, name: joinerName, icon: joinerIcon, color: joinerColor, score: 0}
                 ]);
-                state.setRemotePlayersData([...state.playersData]); // Initialize for UI
-                ui.updateScoresDisplay(); // Show initial score display
+                state.setRemotePlayersData([...state.playersData]);
+                ui.updateScoresDisplay();
 
-                // Initialize peer as joiner. The stop callback is still stopAnyActiveGameAndMatchmaking
-                // in case joining fails and needs cleanup, or if user navigates away.
                 peerConnection.initializePeerAsJoiner(roomIdFromUrl, stopAnyActiveGameAndMatchmaking);
                 
-                // ui.updateGameModeUI will be called within initializePeerAsJoiner
-                // and on connection events to update status further.
+                // updateGameModeUI is called within initializePeerAsJoiner indirectly
+                // and also by connection events, so it should adapt.
                 
                 window.history.replaceState({}, document.title, window.location.pathname);
             };
             attemptSoundAndJoin();
         } else {
-            // No room ID, or not for Cajitas, normal startup.
-            // Call this AFTER the DOMContentLoaded initial ui.showSetupScreen()
-            // to avoid race conditions or double initializations.
             peerConnection.ensurePeerInitialized({
                 onPeerOpen: (id) => console.log('[Main] PeerJS session pre-initialized on load. ID:', id),
                 onError: (err) => console.warn('[Main] Benign PeerJS pre-init error:', err.type)
@@ -288,8 +247,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Call checkUrlForRoomAndJoin after the initial setup UI is shown.
-    // This ensures that if not joining by URL, the setup screen is correctly presented first.
     checkUrlForRoomAndJoin();
     console.log("Cajitas de Dani: Main script initialized.");
 });

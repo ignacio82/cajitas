@@ -18,6 +18,8 @@ const peerJsCallbacks = {
 
             ui.updateMessageArea(`Compartí este enlace o ID: ${gameIdForLink}`);
             // Pass both the full gameLink (for QR) and the gameIdForLink (for text display/copy)
+            console.log("[PeerConnection] CAJITAS_BASE_URL:", CAJITAS_BASE_URL);
+            console.log("[PeerConnection] gameLink for QR:", gameLink);
             ui.displayQRCode(gameLink, gameIdForLink);
         } else if (state.pvpRemoteActive && !state.iAmPlayer1InRemote && state.currentHostPeerId) {
             if (window.peerJsMultiplayer?.connect) {
