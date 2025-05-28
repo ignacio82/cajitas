@@ -404,9 +404,9 @@ export function displayQRCode(gameLink, displayId) {
     if(gameIdDisplay) gameIdDisplay.textContent = `ID: ${displayId}`;
     if(copyGameIdButton) {
         copyGameIdButton.onclick = () => {
-            navigator.clipboard.writeText(displayId)
-                .then(() => updateMessageArea('ID copiado!'))
-                .catch(err => updateMessageArea('Error al copiar ID.', true));
+            navigator.clipboard.writeText(gameLink)
+                .then(() => updateMessageArea('Enlace copiado!'))
+                .catch(err => updateMessageArea('Error al copiar enlace.', true));
         };
     }
 }

@@ -38,6 +38,7 @@ export let myPeerId = null;               // This client's PeerJS ID
 export let turnCounter = 0;               // To sync game events, similar to tateti
 export let myPlayerIdInRemoteGame = null; // The player ID (0, 1, 2, 3) assigned to this client in a remote game
 export let remotePlayersData = [];        // Player data received from the host or to be sent
+export const CAJITAS_PEER_ID_PREFIX = "cajitas-";
 
 // ---------- STATE MUTATORS / SETTERS ----------
 

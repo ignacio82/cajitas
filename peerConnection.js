@@ -1,11 +1,10 @@
 // peerConnection.js
 
 import * as state from './state.js';
-import * as ui from './ui.js'; // Will be created next, for UI updates
-import * as gameLogic from './gameLogic.js'; // Will be created later, for game logic and state updates
+import * as ui from './ui.js';
+import * as gameLogic from './gameLogic.js';
 
-// Placeholder for a potential matchmaking module, similar to tateti
-// import * as matchmaking from './matchmaking.js';
+const CAJITAS_BASE_URL = "https://cajitas.martinez.fyi"; // Define your game's base URL
 
 const peerJsCallbacks = {
     onPeerOpen: (id) => {
@@ -13,73 +12,63 @@ const peerJsCallbacks = {
         state.setMyPeerId(id);
 
         if (state.pvpRemoteActive && state.iAmPlayer1InRemote) {
-            state.setCurrentHostPeerId(id);
-            // Modify game ID for Cajitas to avoid collision with Tateti if using the same Supabase table
-            const gameLink = `https://YOUR_CAJITAS_GAME_URL/?room=cajitas-${id}`; // Replace with your actual URL
-            ui.updateMessageArea(`Compartí este ID para que se unan: cajitas-${id}`); // FIXED
-            ui.displayQRCode(gameLink, `cajitas-${id}`); // Pass the modified ID for display
+            state.setCurrentHostPeerId(id); // Store the raw peer ID
+            const gameIdForLink = `${state.CAJITAS_PEER_ID_PREFIX}${id}`; // Use the prefix for the link/display ID
+            const gameLink = `${CAJITAS_BASE_URL}/?room=${gameIdForLink}`; // Construct the full URL
+
+            ui.updateMessageArea(`Compartí este enlace o ID: ${gameIdForLink}`);
+            // Pass both the full gameLink (for QR) and the gameIdForLink (for text display/copy)
+            ui.displayQRCode(gameLink, gameIdForLink);
         } else if (state.pvpRemoteActive && !state.iAmPlayer1InRemote && state.currentHostPeerId) {
             if (window.peerJsMultiplayer?.connect) {
                 console.log(`[PeerJS] Joiner (my ID ${id}) connecting to host: ${state.currentHostPeerId}`);
-                // currentHostPeerId should already have the "cajitas-" prefix if set by host/URL
                 window.peerJsMultiplayer.connect(state.currentHostPeerId);
             } else {
                 console.error(`[PeerJS] Host ID not set for joiner or connect not available.`);
                 ui.showModalMessage("Error: No se pudo conectar al host. El ID del host no está configurado.");
                 state.resetNetworkState();
-                ui.updateGameModeUI(); // Assumes ui.js will have this
+                ui.updateGameModeUI();
             }
         }
     },
 
     onNewConnection: (conn) => {
         console.log(`[PeerJS] Incoming connection from ${conn.peer}.`);
-        ui.hideQRCode(); // Assuming ui.js will have this
-        ui.showModalMessage("Jugador/a conectándose..."); // Translated
-        ui.updateMessageArea("Jugador/a conectándose..."); // FIXED
-
-        // For matchmaking scenarios, roles might be determined here or upon connection open.
-        // If not using matchmaking and direct hosting, the host is already P1.
-        // The first to establish connection could be P1 if roles are dynamic.
-        // For Cajitas, the host (P1) usually sets up the game.
+        ui.hideQRCode();
+        ui.showModalMessage("Jugador/a conectándose...");
+        ui.updateMessageArea("Jugador/a conectándose...");
     },
 
     onConnectionOpen: () => {
         console.log(`[PeerJS] Data connection opened.`);
         state.setGamePaired(true);
-        ui.hideModalMessage(); // Assuming ui.js will have this
+        ui.hideModalMessage();
         ui.hideQRCode();
 
-        // Exchange player info
         if (window.peerJsMultiplayer?.send) {
-            // Host sends initial game settings and its player data
-            // Joiner sends its player data
             if (state.iAmPlayer1InRemote) {
-                // Host sends game config and its player data
-                const hostPlayerData = state.playersData.find(p => p.id === state.myPlayerIdInRemoteGame) || state.playersData[0]; // Fallback
+                const hostPlayerData = state.playersData.find(p => p.id === state.myPlayerIdInRemoteGame) || state.playersData[0];
                 window.peerJsMultiplayer.send({
                     type: 'game_init_data',
                     settings: {
                         rows: state.numRows,
                         cols: state.numCols,
-                        numPlayers: state.numPlayers, // This will be 2 for P2P
-                        players: state.playersData.map(p => ({ name: p.name, icon: p.icon, color: p.color, id: p.id })) // Send all player shells
+                        numPlayers: state.numPlayers,
+                        players: state.playersData.map(p => ({ name: p.name, icon: p.icon, color: p.color, id: p.id }))
                     },
-                    hostPlayer: hostPlayerData, // Host's specific data
+                    hostPlayer: hostPlayerData,
                     initialTurnCounter: state.turnCounter
                 });
-                 ui.updateMessageArea("¡Conectado! Esperando al Jugador 2..."); // FIXED
+                 ui.updateMessageArea("¡Conectado! Esperando al Jugador 2...");
             } else {
-                // Joiner sends their player data
-                const joinerPlayerData = state.playersData.find(p => p.id === state.myPlayerIdInRemoteGame) || state.playersData[1]; // Fallback
+                const joinerPlayerData = state.playersData.find(p => p.id === state.myPlayerIdInRemoteGame) || state.playersData[1];
                  if(joinerPlayerData) {
                     window.peerJsMultiplayer.send({
                         type: 'player_join_info',
                         player: joinerPlayerData
                     });
                 }
-                ui.updateMessageArea("¡Conectado! Iniciando partida..."); // FIXED
-                // gameLogic.initializeGame(); // Joiner initializes once host confirms or sends start signal
+                ui.updateMessageArea("¡Conectado! Iniciando partida...");
             }
         }
     },
@@ -93,11 +82,11 @@ const peerJsCallbacks = {
         }
 
         switch (data.type) {
-            case 'game_init_data': // Received by Joiner from Host
+            case 'game_init_data':
                 if (!state.iAmPlayer1InRemote) {
                     console.log("[PeerJS] Joiner received game_init_data from Host", data);
                     state.setGameDimensions(data.settings.rows, data.settings.cols);
-                    state.setNumPlayers(data.settings.numPlayers); // Should be 2 for P2P
+                    state.setNumPlayers(data.settings.numPlayers);
                     
                     const hostData = data.hostPlayer;
                     const myData = state.playersData.find(p => p.id === state.myPlayerIdInRemoteGame) || state.playersData[1]; 
@@ -114,14 +103,13 @@ const peerJsCallbacks = {
                     state.setGameActive(true);
                     state.setIsMyTurnInRemote(state.currentPlayerIndex === state.myPlayerIdInRemoteGame);
 
-
                     gameLogic.initializeGame(true); 
-                    ui.updateMessageArea(state.isMyTurnInRemote ? "¡Tu turno!" : `Esperando a ${state.playersData[state.currentPlayerIndex]?.name}...`); // FIXED
+                    ui.updateMessageArea(state.isMyTurnInRemote ? "¡Tu turno!" : `Esperando a ${state.playersData[state.currentPlayerIndex]?.name}...`);
                     ui.setBoardClickable(state.isMyTurnInRemote); 
                 }
                 break;
 
-            case 'player_join_info': // Received by Host from Joiner
+            case 'player_join_info': 
                 if (state.iAmPlayer1InRemote) {
                     console.log("[PeerJS] Host received player_join_info from Joiner", data);
                     if (state.playersData.length === 2) { 
@@ -134,7 +122,7 @@ const peerJsCallbacks = {
                     state.setIsMyTurnInRemote(true); 
 
                     gameLogic.initializeGame(true); 
-                     ui.updateMessageArea("¡Tu turno!"); // FIXED
+                     ui.updateMessageArea("¡Tu turno!");
                     ui.setBoardClickable(true);
 
                     sendFullGameState();
@@ -152,17 +140,12 @@ const peerJsCallbacks = {
                 break;
 
             case 'full_state_update':
-                 if (data.turnCounter <= state.turnCounter && state.turnCounter !== 0 && data.turnCounter !== 0) { // also check that received TC isn't 0 if local isn't
+                 if (data.turnCounter <= state.turnCounter && state.turnCounter !== 0 && data.turnCounter !== 0) {
                     console.warn(`[PeerJS] Ignoring stale/duplicate full_state_update. RX TC: ${data.turnCounter}, Local TC: ${state.turnCounter}.`, data);
                     return;
                 }
                 console.log(`[PeerJS] Received full_state_update. TC: ${data.turnCounter}`);
                 gameLogic.applyFullState(data.gameState);
-                break;
-
-            case 'undo_request':
-                break;
-            case 'undo_confirm':
                 break;
 
             case 'restart_request':
@@ -189,7 +172,7 @@ const peerJsCallbacks = {
         console.log(`[PeerJS] Connection closed.`);
         if (state.pvpRemoteActive) {
             ui.showModalMessage("El oponente se ha desconectado."); 
-            ui.updateMessageArea("Conexión perdida."); // FIXED
+            ui.updateMessageArea("Conexión perdida.");
         }
         state.resetNetworkState();
         ui.updateGameModeUI();
@@ -202,12 +185,12 @@ const peerJsCallbacks = {
         if (err.type) {
             message = `${err.type}: ${message}`;
             if (err.type === 'peer-unavailable') {
-                const peerId = message.match(/peer\s(cajitas-[A-Za-z0-9_-]+)/)?.[1] || 'desconocido';
-                message = `No se pudo conectar al jugador: ${peerId}. Verificá el ID e intentá de nuevo.`; 
+                const peerIdMsgPart = err.message.match(/peer\s(.+)/)?.[1] || 'desconocido';
+                message = `No se pudo conectar al jugador: ${peerIdMsgPart}. Verificá el ID e intentá de nuevo.`; 
             }
         }
         ui.showModalMessage(`Error de conexión: ${message}`);
-        ui.updateMessageArea("Error de conexión.", true); // FIXED, added isError flag
+        ui.updateMessageArea("Error de conexión.", true);
         state.resetNetworkState();
         ui.updateGameModeUI();
         ui.hideQRCode();
@@ -259,13 +242,13 @@ export function initializePeerAsHost(stopPreviousGameCallback) {
     state.setMyPlayerIdInRemoteGame(0); 
 
     ui.updateGameModeUI();
-    ui.updateMessageArea("Estableciendo conexión como Host..."); // FIXED
+    ui.updateMessageArea("Estableciendo conexión como Host..."); 
     ui.hideModalMessage();
 
     ensurePeerInitialized();
 }
 
-export function initializePeerAsJoiner(rawHostId, stopPreviousGameCallback) {
+export function initializePeerAsJoiner(rawHostIdFromUrlOrPrompt, stopPreviousGameCallback) {
     stopPreviousGameCallback?.();
     state.setPvpRemoteActive(true);
     state.setIAmPlayer1InRemote(false);
@@ -275,37 +258,44 @@ export function initializePeerAsJoiner(rawHostId, stopPreviousGameCallback) {
     ui.updateGameModeUI();
     ui.hideModalMessage();
 
-    const hostId = rawHostId.startsWith('cajitas-') ? rawHostId : `cajitas-${rawHostId}`;
+    // Ensure the hostId has the "cajitas-" prefix if it's just the raw peer ID
+    // If it already has it (e.g. from URL), use it as is.
+    const hostIdToConnect = rawHostIdFromUrlOrPrompt.startsWith(state.CAJITAS_PEER_ID_PREFIX)
+        ? rawHostIdFromUrlOrPrompt
+        : `${state.CAJITAS_PEER_ID_PREFIX}${rawHostIdFromUrlOrPrompt}`;
 
-    if (!hostId?.trim()) {
-        ui.showModalMessage("ID del Host no ingresado."); 
-        ui.updateMessageArea("Cancelado."); // FIXED
+
+    if (!hostIdToConnect?.trim() || !hostIdToConnect.includes(state.CAJITAS_PEER_ID_PREFIX)) { // Basic check
+        ui.showModalMessage("ID del Host inválido."); 
+        ui.updateMessageArea("Cancelado."); 
         state.resetNetworkState();
         ui.updateGameModeUI();
         return;
     }
 
-    state.setCurrentHostPeerId(hostId.trim());
-    ui.updateMessageArea(`Intentando conectar a ${state.currentHostPeerId}...`); // FIXED
+    state.setCurrentHostPeerId(hostIdToConnect.trim()); // Store the full prefixed ID to connect to
+    ui.updateMessageArea(`Intentando conectar a ${state.currentHostPeerId}...`); 
     ui.showModalMessage(`Conectando a ${state.currentHostPeerId}...`); 
 
     ensurePeerInitialized(); 
 }
 
-export function connectToDiscoveredPeer(remotePeerIdWithPrefix) {
-     if (!remotePeerIdWithPrefix) {
-        console.error("connectToDiscoveredPeer: remotePeerId is null or undefined.");
+export function connectToDiscoveredPeer(opponentRawPeerId) { // Expects RAW peer ID
+     if (!opponentRawPeerId) {
+        console.error("connectToDiscoveredPeer: opponentRawPeerId is null or undefined.");
         peerJsCallbacks.onError?.({type: 'connect_error', message: 'ID de par remoto nulo.'}); 
         return;
     }
     
+    const opponentFullPeerId = `${state.CAJITAS_PEER_ID_PREFIX}${opponentRawPeerId}`; // Construct the full ID to connect to
+
     if (window.peerJsMultiplayer?.connect) {
-        console.log(`[PeerJS] Attempting to connect to discovered peer: ${remotePeerIdWithPrefix}`);
+        console.log(`[PeerJS] Attempting to connect to discovered peer: ${opponentFullPeerId}`);
         state.setPvpRemoteActive(true);
-        state.setIAmPlayer1InRemote(false); 
-        state.setMyPlayerIdInRemoteGame(1); 
-        state.setCurrentHostPeerId(remotePeerIdWithPrefix); 
-        window.peerJsMultiplayer.connect(remotePeerIdWithPrefix);
+        // state.setIAmPlayer1InRemote(false); // This is now decided before calling connectToDiscoveredPeer in main.js
+        // state.setMyPlayerIdInRemoteGame(1);  // Also decided before
+        state.setCurrentHostPeerId(opponentFullPeerId); 
+        window.peerJsMultiplayer.connect(opponentFullPeerId);
     } else {
         console.error("connectToDiscoveredPeer: peerJsMultiplayer.connect not found.");
         peerJsCallbacks.onError?.({type: 'connect_error', message: 'Función de conexión P2P no disponible.'}); 
