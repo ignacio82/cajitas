@@ -1,4 +1,4 @@
-// gameLogic.js
+// gameLogic.js - FIXED VERSION
 
 import * as state from './state.js';
 import * as ui from './ui.js';
@@ -72,7 +72,6 @@ export function resetGame(backToSetup = true) {
     // if (state.soundEnabled && sound.resetSound) sound.playSound(sound.resetSound);
 }
 
-
 /**
  * Adds click listeners to all line slots on the board.
  */
@@ -94,12 +93,6 @@ function handleLineClickWrapper(event) {
         return;
     }
 
-    // If there was a previous non-scoring move by the current player,
-    // clicking a *different* slot implies they are forfeiting the undo for that previous move
-    // and thus the turn should end *before* processing the new move.
-    // This is complex for remote play, so for now, direct click implies new move.
-    // The undo logic primarily benefits local play's "take-back" then "confirm by next action".
-
     const targetSlot = event.currentTarget;
     const type = targetSlot.dataset.type;
     const r = parseInt(targetSlot.dataset.r);
@@ -108,7 +101,6 @@ function handleLineClickWrapper(event) {
     // Check if line is already drawn (though listener should be removed)
     const lineDrawn = (type === 'h' && state.horizontalLines[r]?.[c]) || (type === 'v' && state.verticalLines[r]?.[c]);
     if (lineDrawn) {
-        // ui.updateMessageArea("¡Esa línea ya está hecha! Probá otra.", true); // Translated
         return; // Should not happen if listener is removed correctly
     }
 
@@ -136,6 +128,8 @@ function handleLineClickWrapper(event) {
  */
 export function processMove(type, r, c, playerIndex, isRemoteSync = false) {
     if (!state.gameActive) return;
+
+    console.log(`[GameLogic] processMove: ${type} at (${r},${c}) by player ${playerIndex}, remote: ${isRemoteSync}`);
 
     // Validate playerIndex if it's coming from remote
     if (isRemoteSync && playerIndex !== state.currentPlayerIndex) {
@@ -166,7 +160,6 @@ export function processMove(type, r, c, playerIndex, isRemoteSync = false) {
 
     // Store for potential local undo (if not a remote sync and game rules allow)
     if (!isRemoteSync && !state.pvpRemoteActive) {
-        // Store previous state of boxes that might be completed by this move
         const boxesPotentiallyCompleted = getPotentiallyAffectedBoxes(type, r, c);
         const previousBoxStates = boxesPotentiallyCompleted.map(box => ({
             r: box.r, c: box.c, player: state.boxes[box.r][box.c]
@@ -174,21 +167,21 @@ export function processMove(type, r, c, playerIndex, isRemoteSync = false) {
 
         state.setLastMoveForUndo({
             type, r, c, playerIndex, lineElement, slotElement,
-            boxesCompletedBeforeThisMove: previousBoxStates, // Store state of relevant boxes *before* this move
+            boxesCompletedBeforeThisMove: previousBoxStates,
             scoreBeforeThisMove: state.playersData[playerIndex].score
         });
         if (ui.undoBtn) ui.undoBtn.disabled = false;
     }
 
-
     const boxesCompletedCount = checkForCompletedBoxes(type, r, c, playerIndex);
+    console.log(`[GameLogic] Boxes completed: ${boxesCompletedCount}`);
 
     if (boxesCompletedCount > 0) {
         state.updatePlayerScore(playerIndex, boxesCompletedCount);
         state.incrementFilledBoxesCount(boxesCompletedCount);
         ui.updateScoresDisplay();
         // Player continues if they completed a box
-        ui.updateMessageArea(`¡${state.playersData[playerIndex].name} hizo ${boxesCompletedCount} cajita(s)! ¡Seguís vos!`); // Translated
+        ui.updateMessageArea(`¡${state.playersData[playerIndex].name} hizo ${boxesCompletedCount} cajita(s)! ¡Seguís vos!`);
         // if (state.soundEnabled && sound.boxSound) { /* play multiple times */ }
 
         // For local play, completing a box means no "simple" undo for the line that completed it.
@@ -214,15 +207,18 @@ export function processMove(type, r, c, playerIndex, isRemoteSync = false) {
         ui.updatePlayerTurnDisplay();
     }
 
-
+    // FIXED: Check game over AFTER all processing is complete
+    console.log(`[GameLogic] Checking game over: filledBoxes=${state.filledBoxesCount}, totalPossible=${state.totalPossibleBoxes}`);
     if (checkGameOver()) {
+        console.log(`[GameLogic] Game over detected!`);
         announceWinner();
         state.setGameActive(false);
         if (ui.undoBtn) ui.undoBtn.disabled = true;
         state.setLastMoveForUndo(null);
+    } else {
+        console.log(`[GameLogic] Game continues...`);
     }
 }
-
 
 function getPotentiallyAffectedBoxes(lineType, lineR, lineC) {
     const affected = [];
@@ -239,7 +235,6 @@ function getPotentiallyAffectedBoxes(lineType, lineR, lineC) {
     }
     return affected.filter(b => b.r >= 0 && b.r < state.numRows -1 && b.c >=0 && b.c < state.numCols -1);
 }
-
 
 /**
  * Checks for completed boxes after a line is drawn.
@@ -261,6 +256,7 @@ function checkForCompletedBoxes(lineType, lineR, lineC, playerIndex) {
             ui.fillBoxOnBoard(lineR, lineC, playerIndex);
             state.boxes[lineR][lineC] = playerIndex;
             boxesMadeThisTurn++;
+            console.log(`[GameLogic] Box completed at (${lineR}, ${lineC}) by player ${playerIndex}`);
         }
     } else if (lineType === 'v' && lineC < state.numCols - 1) { // Box to the right of lineR, lineC
         if (state.boxes[lineR][lineC] === -1 &&
@@ -270,6 +266,7 @@ function checkForCompletedBoxes(lineType, lineR, lineC, playerIndex) {
             ui.fillBoxOnBoard(lineR, lineC, playerIndex);
             state.boxes[lineR][lineC] = playerIndex;
             boxesMadeThisTurn++;
+            console.log(`[GameLogic] Box completed at (${lineR}, ${lineC}) by player ${playerIndex}`);
         }
     }
 
@@ -282,6 +279,7 @@ function checkForCompletedBoxes(lineType, lineR, lineC, playerIndex) {
             ui.fillBoxOnBoard(lineR - 1, lineC, playerIndex);
             state.boxes[lineR - 1][lineC] = playerIndex;
             boxesMadeThisTurn++;
+            console.log(`[GameLogic] Box completed at (${lineR - 1}, ${lineC}) by player ${playerIndex}`);
         }
     } else if (lineType === 'v' && lineC > 0) { // Box to the left of lineR, lineC (means it's box [lineR][lineC-1])
         if (state.boxes[lineR][lineC - 1] === -1 &&
@@ -291,11 +289,11 @@ function checkForCompletedBoxes(lineType, lineR, lineC, playerIndex) {
             ui.fillBoxOnBoard(lineR, lineC - 1, playerIndex);
             state.boxes[lineR][lineC - 1] = playerIndex;
             boxesMadeThisTurn++;
+            console.log(`[GameLogic] Box completed at (${lineR}, ${lineC - 1}) by player ${playerIndex}`);
         }
     }
     return boxesMadeThisTurn;
 }
-
 
 function endTurn() {
     if (!state.gameActive) return;
@@ -341,12 +339,6 @@ export function handleUndo() {
     }
 
     // Revert any boxes that were completed by this specific move
-    // This requires knowing which boxes were *newly* completed.
-    // The current logic in checkForCompletedBoxes fills them immediately.
-    // For undo, we need to revert those specific boxes.
-    const currentBoxOwner = state.boxes[r]?.[c]; // Example for one potential box, needs refinement for all affected by the line
-
-    // Simpler: if boxesCompletedBeforeThisMove was stored correctly:
     if (boxesCompletedBeforeThisMove) {
         boxesCompletedBeforeThisMove.forEach(prevBoxState => {
             // If a box was -1 and is now owned by current player, revert it
@@ -360,7 +352,6 @@ export function handleUndo() {
     // Revert score
     state.playersData[playerIndex].score = scoreBeforeThisMove;
 
-
     ui.updateScoresDisplay();
     ui.updateMessageArea(`${state.playersData[playerIndex].name}, ¡hacé tu jugada de nuevo!`); // Translated
     state.setLastMoveForUndo(null);
@@ -372,9 +363,11 @@ export function handleUndo() {
     ui.setBoardClickable(true);
 }
 
-
+// FIXED: More robust game over check
 function checkGameOver() {
-    return state.filledBoxesCount === state.totalPossibleBoxes;
+    const gameOver = state.filledBoxesCount >= state.totalPossibleBoxes;
+    console.log(`[GameLogic] checkGameOver: filledBoxes=${state.filledBoxesCount}, totalPossible=${state.totalPossibleBoxes}, gameOver=${gameOver}`);
+    return gameOver;
 }
 
 function announceWinner() {
@@ -402,7 +395,6 @@ function announceWinner() {
     ui.updateMessageArea('');
     if (ui.mainTitle) ui.mainTitle.textContent = "¿Jugar de Nuevo?"; // Translated
 }
-
 
 // ---------- NETWORK GAME LOGIC HANDLERS ----------
 
@@ -446,7 +438,6 @@ export function applyFullState(remoteGameState) {
     state.setPlayersData(remoteGameState.playersData.map(p => ({...p}))); // Deep copy might be better
     state.setRemotePlayersData([...remoteGameState.playersData]);
 
-
     state.setHorizontalLines(remoteGameState.horizontalLines.map(row => [...row]));
     state.setVerticalLines(remoteGameState.verticalLines.map(row => [...row]));
     state.setBoxes(remoteGameState.boxes.map(row => [...row]));
@@ -454,7 +445,6 @@ export function applyFullState(remoteGameState) {
     state.setTurnCounter(remoteGameState.turnCounter);
     state.setCurrentPlayerIndex(remoteGameState.currentPlayerIndex);
     state.setGameActive(remoteGameState.gameActive);
-
 
     // Redraw the entire board based on the new state
     ui.clearBoardForNewGame(); // Clear existing visuals
@@ -465,13 +455,6 @@ export function applyFullState(remoteGameState) {
     state.horizontalLines.forEach((row, r) => {
         row.forEach((val, c) => {
             if (val) {
-                // Find which player made this line if boxes state doesn't directly say
-                // This is tricky without line-specific player data.
-                // For simplicity, we might assume lines are just "drawn" without player color
-                // or try to infer from adjacent boxes.
-                // For now, just draw it generically or skip coloring by player on full sync.
-                // OR, if the goal is visual consistency, the `boxes` data is key.
-                // We'll redraw lines and then boxes.
                 const linePlayer = findLineOwner(r,c,'h'); // Placeholder
                 ui.drawVisualLineOnBoard('h', r, c, linePlayer !== -1 ? linePlayer : 0); // Default to P0 if unknown
                 const slotElement = document.getElementById(`slot-h-${r}-${c}`);
@@ -516,8 +499,6 @@ export function applyFullState(remoteGameState) {
 }
 
 // Placeholder: In a real scenario, you'd need a more robust way to know who drew each line
-// if you want to color synced lines by player. Often, games send line+player info per move.
-// If not, you might infer from completed boxes or just draw lines neutrally on full sync.
 function findLineOwner(r, c, type) {
     // This is a simplified placeholder.
     // Try to find an adjacent box owned by a player.
@@ -530,7 +511,6 @@ function findLineOwner(r, c, type) {
     }
     return 0; // Default to player 0 or a neutral color indicator
 }
-
 
 export function endGameAbruptly() {
     state.setGameActive(false);
