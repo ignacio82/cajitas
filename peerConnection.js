@@ -123,7 +123,6 @@ const peerJsCallbacks = {
                         score: 0
                     };
 
-                    // CRITICAL: Set up players array with correct assignments
                     const remoteSessionPlayers = [
                         { ...hostData, id: 0, score: 0 },     // Host is Player 0
                         { ...myJoinerData, id: 1, score: 0 }  // Joiner is Player 1
@@ -135,24 +134,22 @@ const peerJsCallbacks = {
                     state.setRemotePlayersData([...remoteSessionPlayers]);
                     state.setMyPlayerIdInRemoteGame(1); // Joiner is Player 1
 
-                    // Set up turn management
                     state.setTurnCounter(data.initialTurnCounter || 0);
-                    state.setCurrentPlayerIndex(0); // Game always starts with Player 0 (host)
+                    state.setCurrentPlayerIndex(0);
                     state.setGameActive(true);
-                    state.setIsMyTurnInRemote(false); // Joiner waits for host to start
+                    state.setIsMyTurnInRemote(false);
 
-                    // Initialize the actual game
                     gameLogic.initializeGame(true);
                     ui.updateMessageArea("Esperando a que empiece el host...");
-                    ui.setBoardClickable(false); // Joiner can't click yet
+                    ui.setBoardClickable(false);
                 }
                 break;
 
             case 'player_join_info':
                 if (state.iAmPlayer1InRemote) { // HOST receives this
-                    console.log("[PeerJS] HOST received player_join_info from Joiner. Raw data:", data);
+                    console.log("[PeerJS] HOST received player_join_info from Joiner. Raw data:", JSON.stringify(data));
 
-                    const hostData = { // This is Player 0 (Host)
+                    const hostData = {
                         id: 0,
                         name: state.playersData[0]?.name || 'Host',
                         icon: state.playersData[0]?.icon || state.AVAILABLE_ICONS[0],
@@ -160,9 +157,8 @@ const peerJsCallbacks = {
                         score: 0
                     };
 
-                    let joinerData = { ...data.player, id: 1, score: 0 }; // This is Player 1 (Joiner)
+                    let joinerData = { ...data.player, id: 1, score: 0 };
 
-                    // ---- START OF CONFLICT RESOLUTION WITH ENHANCED LOGGING ----
                     let originalJoinerName = joinerData.name;
                     let originalJoinerIcon = joinerData.icon;
                     let originalJoinerColor = joinerData.color;
@@ -172,16 +168,14 @@ const peerJsCallbacks = {
                     let currentJoinerColor = joinerData.color;
                     let detailsChanged = false;
 
-                    // Check and resolve name clash
                     if (currentJoinerName === hostData.name) {
-                        currentJoinerName = "Oponente"; // Assign a default distinct name
-                        if (currentJoinerName === hostData.name) { // If host is also "Oponente"
+                        currentJoinerName = "Oponente";
+                        if (currentJoinerName === hostData.name) {
                             currentJoinerName = "Rival";
                         }
                         detailsChanged = true;
                     }
 
-                    // Check and resolve icon clash
                     if (currentJoinerIcon === hostData.icon) {
                         const hostIconIndex = state.AVAILABLE_ICONS.indexOf(hostData.icon);
                         let newIconIndex = hostIconIndex;
@@ -193,12 +187,11 @@ const peerJsCallbacks = {
                         } else if (state.AVAILABLE_ICONS.length === 1 && state.AVAILABLE_ICONS[0] !== hostData.icon) {
                             currentJoinerIcon = state.AVAILABLE_ICONS[0];
                         } else {
-                            currentJoinerIcon = '❓'; // Fallback
+                            currentJoinerIcon = '❓';
                         }
                         detailsChanged = true;
                     }
 
-                    // Check and resolve color clash
                     if (currentJoinerColor === hostData.color) {
                         const hostColorIndex = state.DEFAULT_PLAYER_COLORS.indexOf(hostData.color);
                         let newColorIndex = hostColorIndex;
@@ -210,36 +203,34 @@ const peerJsCallbacks = {
                         } else if (state.DEFAULT_PLAYER_COLORS.length === 1 && state.DEFAULT_PLAYER_COLORS[0] !== hostData.color) {
                             currentJoinerColor = state.DEFAULT_PLAYER_COLORS[0];
                         } else {
-                            currentJoinerColor = '#808080'; // Fallback grey
+                            currentJoinerColor = '#808080';
                         }
                         detailsChanged = true;
                     }
 
                     if (detailsChanged) {
                         console.log("[PeerConnection] Joiner details clashed with host.");
-                        console.log("[PeerConnection] Host Details: ", { name: hostData.name, icon: hostData.icon, color: hostData.color });
-                        console.log("[PeerConnection] Original Joiner Details: ", { name: originalJoinerName, icon: originalJoinerIcon, color: originalJoinerColor });
-                        console.log("[PeerConnection] Corrected Joiner Details: ", { name: currentJoinerName, icon: currentJoinerIcon, color: currentJoinerColor });
+                        console.log(`[PeerConnection] Host Details: Name=${hostData.name}, Icon=${hostData.icon}, Color=${hostData.color}`);
+                        console.log(`[PeerConnection] Original Joiner Details: Name=${originalJoinerName}, Icon=${originalJoinerIcon}, Color=${originalJoinerColor}`);
+                        console.log(`[PeerConnection] Corrected Joiner Details: Name=${currentJoinerName}, Icon=${currentJoinerIcon}, Color=${currentJoinerColor}`);
 
                         joinerData.name = currentJoinerName;
                         joinerData.icon = currentJoinerIcon;
                         joinerData.color = currentJoinerColor;
                     } else {
-                        console.log("[PeerConnection] Joiner details did not clash. Using as is: ", joinerData);
+                        console.log(`[PeerConnection] Joiner details did not clash. Using as is: Name=${joinerData.name}, Icon=${joinerData.icon}, Color=${joinerData.color}`);
                     }
-                    // ---- END OF CONFLICT RESOLUTION ----
 
                     const finalPlayers = [hostData, joinerData];
-
-                    console.log("[PeerConnection] HOST setting up final players based on (potentially corrected) joiner data:", finalPlayers);
+                    console.log("[PeerConnection] HOST setting up final players (JSON):", JSON.stringify(finalPlayers));
 
                     state.setPlayersData(finalPlayers);
                     state.setRemotePlayersData([...finalPlayers]);
-                    state.setMyPlayerIdInRemoteGame(0); // Host is Player 0
+                    state.setMyPlayerIdInRemoteGame(0);
 
                     state.setGameActive(true);
-                    state.setCurrentPlayerIndex(0); // Host (Player 0) starts
-                    state.setIsMyTurnInRemote(true); // Host's turn first
+                    state.setCurrentPlayerIndex(0);
+                    state.setIsMyTurnInRemote(true);
 
                     gameLogic.initializeGame(true);
                     ui.updateMessageArea("¡Tu turno! Empezá jugando.");
@@ -260,11 +251,11 @@ const peerJsCallbacks = {
                 break;
 
             case 'full_state_update':
-                if (data.turnCounter <= state.turnCounter && state.turnCounter !== 0 && data.turnCounter !== 0) {
-                    console.warn(`[PeerJS] Ignoring stale/duplicate full_state_update. RX TC: ${data.turnCounter}, Local TC: ${state.turnCounter}.`, data);
+                if (data.turnCounter <= state.turnCounter && state.turnCounter !== 0 && data.turnCounter !== 0) { // check turnCounter is not 0 for initial sync
+                    console.warn(`[PeerJS] Ignoring stale/duplicate full_state_update. RX TC: ${data.turnCounter}, Local TC: ${state.turnCounter}. Data:`, data);
                     return;
                 }
-                console.log(`[PeerJS] Received full_state_update. TC: ${data.turnCounter}`, data.gameState); // Log received game state
+                console.log(`[PeerJS] Received full_state_update. TC: ${data.turnCounter}. PlayersData (JSON):`, JSON.stringify(data.gameState.playersData));
                 gameLogic.applyFullState(data.gameState);
                 break;
 
@@ -319,7 +310,6 @@ const peerJsCallbacks = {
     }
 };
 
-// Initialize PeerJS with optional custom callbacks
 export function ensurePeerInitialized(customCallbacks = {}) {
     if (window.peerJsMultiplayer?.init) {
         const effectiveCallbacks = {
@@ -362,7 +352,7 @@ export function initializePeerAsHost(stopPreviousGameCallback) {
     state.setIAmPlayer1InRemote(true);
     state.setGamePaired(false);
     state.setCurrentHostPeerId(null);
-    state.setMyPlayerIdInRemoteGame(0); // HOST is Player 0
+    state.setMyPlayerIdInRemoteGame(0);
 
     ui.updateGameModeUI();
     ui.updateMessageArea("Estableciendo conexión como Host...");
@@ -376,12 +366,11 @@ export function initializePeerAsJoiner(rawHostIdFromUrlOrPrompt, stopPreviousGam
     state.setPvpRemoteActive(true);
     state.setIAmPlayer1InRemote(false);
     state.setGamePaired(false);
-    state.setMyPlayerIdInRemoteGame(1); // JOINER is Player 1
+    state.setMyPlayerIdInRemoteGame(1);
 
     ui.updateGameModeUI();
     ui.hideModalMessage();
 
-    // Use the raw host ID directly (no prefix manipulation needed)
     const hostIdToConnect = rawHostIdFromUrlOrPrompt;
 
     if (!hostIdToConnect?.trim()) {
@@ -392,7 +381,7 @@ export function initializePeerAsJoiner(rawHostIdFromUrlOrPrompt, stopPreviousGam
         return;
     }
 
-    state.setCurrentHostPeerId(hostIdToConnect.trim()); // Store the raw ID
+    state.setCurrentHostPeerId(hostIdToConnect.trim());
     ui.updateMessageArea(`Intentando conectar a ${hostIdToConnect}...`);
     ui.showModalMessage(`Conectando a ${hostIdToConnect}...`);
 
@@ -409,8 +398,8 @@ export function connectToDiscoveredPeer(opponentRawPeerId) {
     if (window.peerJsMultiplayer?.connect) {
         console.log(`[PeerJS] Attempting to connect to discovered peer: ${opponentRawPeerId}`);
         state.setPvpRemoteActive(true);
-        state.setCurrentHostPeerId(opponentRawPeerId); // Store raw ID
-        window.peerJsMultiplayer.connect(opponentRawPeerId); // Connect with raw ID
+        state.setCurrentHostPeerId(opponentRawPeerId);
+        window.peerJsMultiplayer.connect(opponentRawPeerId);
     } else {
         console.error("connectToDiscoveredPeer: peerJsMultiplayer.connect not found.");
         peerJsCallbacks.onError?.({type: 'connect_error', message: 'Función de conexión P2P no disponible.'});
@@ -456,7 +445,7 @@ export function sendFullGameState() {
         gameActive: state.gameActive,
         turnCounter: state.turnCounter
     };
-    console.log("[PeerConnection] HOST sending full_state_update with playersData:", gameStatePayload.playersData); // Added log
+    console.log("[PeerConnection] HOST sending full_state_update with playersData (JSON):", JSON.stringify(gameStatePayload.playersData));
     sendPeerData({
         type: 'full_state_update',
         gameState: gameStatePayload,
