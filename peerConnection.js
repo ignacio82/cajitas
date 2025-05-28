@@ -1,4 +1,4 @@
-// peerConnection.js - FIXED VERSION with proper player assignment & conflict resolution
+// peerConnection.js
 
 import * as state from './state.js';
 import * as ui from './ui.js';
@@ -150,7 +150,7 @@ const peerJsCallbacks = {
 
             case 'player_join_info':
                 if (state.iAmPlayer1InRemote) { // HOST receives this
-                    console.log("[PeerJS] HOST received player_join_info from Joiner", data);
+                    console.log("[PeerJS] HOST received player_join_info from Joiner. Raw data:", data);
 
                     const hostData = { // This is Player 0 (Host)
                         id: 0,
@@ -162,68 +162,76 @@ const peerJsCallbacks = {
 
                     let joinerData = { ...data.player, id: 1, score: 0 }; // This is Player 1 (Joiner)
 
-                    // ---- START OF FIX: Resolve Customization Conflicts ----
-                    let joinerName = joinerData.name;
-                    let joinerIcon = joinerData.icon;
-                    let joinerColor = joinerData.color;
+                    // ---- START OF CONFLICT RESOLUTION WITH ENHANCED LOGGING ----
+                    let originalJoinerName = joinerData.name;
+                    let originalJoinerIcon = joinerData.icon;
+                    let originalJoinerColor = joinerData.color;
+
+                    let currentJoinerName = joinerData.name;
+                    let currentJoinerIcon = joinerData.icon;
+                    let currentJoinerColor = joinerData.color;
                     let detailsChanged = false;
 
                     // Check and resolve name clash
-                    if (joinerName === hostData.name) {
-                        joinerName = "Oponente"; // Assign a default distinct name
-                        // If host is also "Oponente", assign another name
-                        if (joinerName === hostData.name) {
-                            joinerName = "Rival";
+                    if (currentJoinerName === hostData.name) {
+                        currentJoinerName = "Oponente"; // Assign a default distinct name
+                        if (currentJoinerName === hostData.name) { // If host is also "Oponente"
+                            currentJoinerName = "Rival";
                         }
                         detailsChanged = true;
                     }
 
                     // Check and resolve icon clash
-                    if (joinerIcon === hostData.icon) {
+                    if (currentJoinerIcon === hostData.icon) {
                         const hostIconIndex = state.AVAILABLE_ICONS.indexOf(hostData.icon);
                         let newIconIndex = hostIconIndex;
                         if (state.AVAILABLE_ICONS.length > 1) {
-                            // Try to find a different icon by iterating
                             do {
                                 newIconIndex = (newIconIndex + 1) % state.AVAILABLE_ICONS.length;
                             } while (newIconIndex === hostIconIndex);
-                            joinerIcon = state.AVAILABLE_ICONS[newIconIndex];
+                            currentJoinerIcon = state.AVAILABLE_ICONS[newIconIndex];
                         } else if (state.AVAILABLE_ICONS.length === 1 && state.AVAILABLE_ICONS[0] !== hostData.icon) {
-                            joinerIcon = state.AVAILABLE_ICONS[0];
+                            currentJoinerIcon = state.AVAILABLE_ICONS[0];
                         } else {
-                            joinerIcon = '❓'; // Fallback if no other icon is available
+                            currentJoinerIcon = '❓'; // Fallback
                         }
                         detailsChanged = true;
                     }
 
                     // Check and resolve color clash
-                    if (joinerColor === hostData.color) {
+                    if (currentJoinerColor === hostData.color) {
                         const hostColorIndex = state.DEFAULT_PLAYER_COLORS.indexOf(hostData.color);
                         let newColorIndex = hostColorIndex;
                          if (state.DEFAULT_PLAYER_COLORS.length > 1) {
                             do {
                                 newColorIndex = (newColorIndex + 1) % state.DEFAULT_PLAYER_COLORS.length;
                             } while (newColorIndex === hostColorIndex);
-                            joinerColor = state.DEFAULT_PLAYER_COLORS[newColorIndex];
+                            currentJoinerColor = state.DEFAULT_PLAYER_COLORS[newColorIndex];
                         } else if (state.DEFAULT_PLAYER_COLORS.length === 1 && state.DEFAULT_PLAYER_COLORS[0] !== hostData.color) {
-                            joinerColor = state.DEFAULT_PLAYER_COLORS[0];
+                            currentJoinerColor = state.DEFAULT_PLAYER_COLORS[0];
                         } else {
-                            joinerColor = '#808080'; // Fallback grey color
+                            currentJoinerColor = '#808080'; // Fallback grey
                         }
                         detailsChanged = true;
                     }
 
                     if (detailsChanged) {
-                        console.log("[PeerConnection] Joiner details clashed or were updated. New details:", { name: joinerName, icon: joinerIcon, color: joinerColor });
-                        joinerData.name = joinerName;
-                        joinerData.icon = joinerIcon;
-                        joinerData.color = joinerColor;
+                        console.log("[PeerConnection] Joiner details clashed with host.");
+                        console.log("[PeerConnection] Host Details: ", { name: hostData.name, icon: hostData.icon, color: hostData.color });
+                        console.log("[PeerConnection] Original Joiner Details: ", { name: originalJoinerName, icon: originalJoinerIcon, color: originalJoinerColor });
+                        console.log("[PeerConnection] Corrected Joiner Details: ", { name: currentJoinerName, icon: currentJoinerIcon, color: currentJoinerColor });
+
+                        joinerData.name = currentJoinerName;
+                        joinerData.icon = currentJoinerIcon;
+                        joinerData.color = currentJoinerColor;
+                    } else {
+                        console.log("[PeerConnection] Joiner details did not clash. Using as is: ", joinerData);
                     }
-                    // ---- END OF FIX ----
+                    // ---- END OF CONFLICT RESOLUTION ----
 
                     const finalPlayers = [hostData, joinerData];
 
-                    console.log("[PeerConnection] HOST setting up final players:", finalPlayers);
+                    console.log("[PeerConnection] HOST setting up final players based on (potentially corrected) joiner data:", finalPlayers);
 
                     state.setPlayersData(finalPlayers);
                     state.setRemotePlayersData([...finalPlayers]);
@@ -237,8 +245,6 @@ const peerJsCallbacks = {
                     ui.updateMessageArea("¡Tu turno! Empezá jugando.");
                     ui.setBoardClickable(true);
 
-                    // Send back the full game state to sync,
-                    // this will include the potentially modified joinerData.
                     sendFullGameState();
                 }
                 break;
@@ -258,7 +264,7 @@ const peerJsCallbacks = {
                     console.warn(`[PeerJS] Ignoring stale/duplicate full_state_update. RX TC: ${data.turnCounter}, Local TC: ${state.turnCounter}.`, data);
                     return;
                 }
-                console.log(`[PeerJS] Received full_state_update. TC: ${data.turnCounter}`);
+                console.log(`[PeerJS] Received full_state_update. TC: ${data.turnCounter}`, data.gameState); // Log received game state
                 gameLogic.applyFullState(data.gameState);
                 break;
 
@@ -450,6 +456,7 @@ export function sendFullGameState() {
         gameActive: state.gameActive,
         turnCounter: state.turnCounter
     };
+    console.log("[PeerConnection] HOST sending full_state_update with playersData:", gameStatePayload.playersData); // Added log
     sendPeerData({
         type: 'full_state_update',
         gameState: gameStatePayload,
