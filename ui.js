@@ -25,11 +25,9 @@ export const modalMessageText = document.getElementById('modal-message-text');
 export const modalCloseBtn = document.getElementById('modal-close-btn');
 
 export const hostGameButton = document.getElementById('host-cajitas-btn');
-// export const joinGameButton = document.getElementById('join-cajitas-btn'); // REMOVED
 export const playRandomButton = document.getElementById('play-random-cajitas-btn');
 
 export const qrCodeContainer = document.getElementById('qr-code-container');
-// export const gameIdDisplay = document.getElementById('game-id-display'); // REMOVED
 export const copyGameIdButton = document.getElementById('copy-game-id-btn');
 export const cancelMatchmakingButton = document.getElementById('cancel-matchmaking-btn');
 
@@ -387,7 +385,7 @@ export function displayQRCode(gameLink, displayId) {
     console.log("[UI] displayQRCode called with gameLink:", gameLink, "displayId:", displayId);
     const networkInfoDiv = document.getElementById('network-info-area');
 
-    if (!qrCodeContainer) { // This is the direct container for the canvas
+    if (!qrCodeContainer) {
         console.error("[UI] qrCodeContainer element (for canvas) not found!");
         showModalMessage(`ID del Juego: ${displayId}. Compartilo para que alguien se una. (Error: Contenedor QR no encontrado)`);
         return;
@@ -404,8 +402,6 @@ export function displayQRCode(gameLink, displayId) {
         networkInfoDiv.classList.remove('hidden');
     } else {
         console.warn("[UI] 'network-info-area' div (parent for QR) not found. QR code might not be styled/positioned correctly.");
-        // If the main container is missing, we might still try to show QR in modal or just the link
-        // For now, we assume qrCodeContainer itself is where it should go.
     }
 
     qrCodeContainer.innerHTML = ''; // Clear previous QR
@@ -413,7 +409,7 @@ export function displayQRCode(gameLink, displayId) {
     try {
         new QRious({
             element: canvas,
-            value: gameLink,
+            value: gameLink, // This should be the full URL (e.g., https://cajitas.martinez.fyi/?room=abc123)
             size: 160,
             padding: 8,
             level: 'H',
@@ -424,18 +420,16 @@ export function displayQRCode(gameLink, displayId) {
         console.log("[UI] QR code generated and appended to qrCodeContainer.");
     } catch(e) {
         console.error("[UI] Error generating QR code with QRious:", e);
-        if(qrCodeContainer) qrCodeContainer.textContent = "Error al generar QR."; // Check qrCodeContainer exists
+        if(qrCodeContainer) qrCodeContainer.textContent = "Error al generar QR.";
         showModalMessage(`Error al generar QR. ID: ${displayId}. Link: ${gameLink}`);
         return;
     }
 
-    // No longer using gameIdDisplay for plain text ID here
-    // if(gameIdDisplay) gameIdDisplay.textContent = `ID para compartir: ${displayId}`;
-
+    // Update copy button with the full game link
     if(copyGameIdButton) {
         copyGameIdButton.textContent = "Copiar Enlace del Juego";
         copyGameIdButton.onclick = () => {
-            navigator.clipboard.writeText(gameLink)
+            navigator.clipboard.writeText(gameLink) // Copy the full URL, not just the display ID
                 .then(() => updateMessageArea('¡Enlace del juego copiado!'))
                 .catch(err => {
                     console.error('[UI] Error copying game link to clipboard:', err);
@@ -453,7 +447,6 @@ export function hideQRCode() {
         console.log("[UI] networkInfoDiv hidden.");
     }
     if (qrCodeContainer) qrCodeContainer.innerHTML = ''; // Clear the QR canvas
-    // if (gameIdDisplay) gameIdDisplay.textContent = ''; // No longer used
 }
 
 export function updateGameModeUI() {
@@ -463,9 +456,7 @@ export function updateGameModeUI() {
     const isActuallyHostingOrJoining = state.pvpRemoteActive;
 
     if (hostGameButton) hostGameButton.style.display = isActuallyHostingOrJoining ? 'none' : 'inline-block';
-    // joinGameButton is removed, playRandomButton takes its place if needed or is separate
     if (playRandomButton) playRandomButton.style.display = isActuallyHostingOrJoining ? 'none' : 'inline-block';
-
 
     if (cancelMatchmakingButton) {
         const isActivelyMatchmaking = state.pvpRemoteActive &&
@@ -490,20 +481,13 @@ export function updateGameModeUI() {
     const hostIsActivelyWaitingWithId = state.pvpRemoteActive && !state.gamePaired && state.iAmPlayer1InRemote && state.currentHostPeerId;
 
     if (hostIsActivelyWaitingWithId) {
-        // This state is primarily when displayQRCode should have been called.
-        // If networkInfoDiv is somehow hidden, displayQRCode should reveal it.
-        // We ensure the message reflects waiting state.
         if (networkInfoDiv && networkInfoDiv.classList.contains('hidden')) {
-             // This implies displayQRCode might not have run or an issue occurred.
-             // For now, we let displayQRCode handle unhiding.
             console.warn("[UI] Host is waiting with ID, but networkInfoDiv is hidden. displayQRCode should manage this.");
         }
         updateMessageArea(`Compartí el enlace o ID: ${state.CAJITAS_PEER_ID_PREFIX}${state.currentHostPeerId}`);
     } else if (networkInfoDiv && !networkInfoDiv.classList.contains('hidden')) {
-        // If NOT in the "host waiting with ID" state, but the div IS visible, hide it.
         hideQRCode();
     }
-
 
     // Update general messages based on other states for clarity
     if (state.pvpRemoteActive && !state.gamePaired) {

@@ -1,4 +1,4 @@
-// main.js -- Main Application Orchestrator for Cajitas de Dani
+// main.js -- FIXED VERSION - Main Application Orchestrator for Cajitas de Dani
 
 // VERY EARLY LOG: What is the URL when the script first runs?
 console.log("[Main - Pre-DOM] Initial window.location.href:", window.location.href);
@@ -16,7 +16,6 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log("[Main - DOMContentLoaded] window.location.href:", window.location.href);
     console.log("[Main - DOMContentLoaded] window.location.search:", window.location.search);
 
-
     // --- Initial UI Setup ---
     ui.showSetupScreen();
     if (ui.numPlayersInput) {
@@ -24,7 +23,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     ui.updateGameModeUI();
     if (ui.undoBtn) ui.undoBtn.disabled = true;
-
 
     // --- Event Listeners for Setup ---
     ui.startGameBtn?.addEventListener('click', async () => {
@@ -213,11 +211,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const roomIdFromUrl = urlParams.get('room');
         console.log("[Main] URL Join Check: roomIdFromUrl Extracted:", roomIdFromUrl);
 
-        if (roomIdFromUrl && roomIdFromUrl.startsWith('cajitas-')) {
-            console.log("[Main] URL Join Check: Valid 'cajitas-' room ID found:", roomIdFromUrl, ". Attempting to join...");
+        // FIXED: Check for any room ID, not just ones with 'cajitas-' prefix
+        if (roomIdFromUrl && roomIdFromUrl.trim()) {
+            console.log("[Main] URL Join Check: Valid room ID found:", roomIdFromUrl, ". Attempting to join...");
             const attemptSoundAndJoin = async () => {
                 if (!state.soundsInitialized) {
-                    // Attempt to initialize sounds, user might need to click for this to fully work on first load
                     try {
                         await sound.initSounds();
                     } catch(e) {
@@ -231,7 +229,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if(ui.gameArea) ui.gameArea.classList.remove('hidden');
                 ui.updateMessageArea(`Conectando a la sala ${roomIdFromUrl}...`);
                 if(ui.mainTitle) ui.mainTitle.textContent = "Uniéndose a Partida...";
-
 
                 if(ui.numPlayersInput) ui.numPlayersInput.value = "2";
                 state.setNumPlayers(2);
@@ -248,6 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.setRemotePlayersData([...state.playersData]);
                 ui.updateScoresDisplay();
 
+                // FIXED: Pass the raw room ID directly (no prefix manipulation)
                 peerConnection.initializePeerAsJoiner(roomIdFromUrl, stopAnyActiveGameAndMatchmaking);
                                 
                 window.history.replaceState({}, document.title, window.location.pathname);
@@ -255,7 +253,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             attemptSoundAndJoin();
         } else {
-            console.log("[Main] URL Join Check: No valid 'cajitas-' room ID found in URL or roomIdFromUrl is null.");
+            console.log("[Main] URL Join Check: No valid room ID found in URL or roomIdFromUrl is null.");
             peerConnection.ensurePeerInitialized({
                 onPeerOpen: (id) => console.log('[Main] PeerJS session pre-initialized on load (no room in URL). ID:', id),
                 onError: (err) => console.warn('[Main] Benign PeerJS pre-init error (no room in URL):', err.type)
