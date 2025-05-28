@@ -1,280 +1,400 @@
-// peerjs-multiplayer.js
-console.log("DEBUG: peerjs-multiplayer.js script execution started."); // <-- NEW DEBUG LOG AT THE VERY TOP
+// peerConnection.js - FIXED VERSION with proper player assignment
 
-let peer = null; // PeerJS object
-let currentConnection = null; // PeerJS DataConnection object
-let localPeerId = null;
+import * as state from './state.js';
+import * as ui from './ui.js';
+import * as gameLogic from './gameLogic.js';
 
-// Callbacks to be set by game.js
-let onPeerOpenCallback = (id) => console.log('PeerJS: Default - My peer ID is:', id);
-let onConnectionOpenCallback = () => console.log('PeerJS: Default - Connection opened!');
-let onDataReceivedCallback = (data) => console.log('PeerJS: Default - Data received:', data);
-let onConnectionCloseCallback = () => console.log('PeerJS: Default - Connection closed.');
-let onErrorCallback = (err) => console.error('PeerJS: Default - Error:', err);
-let onNewConnectionCallback = (conn) => console.log('PeerJS: Default - New incoming connection', conn);
+const CAJITAS_BASE_URL = "https://cajitas.martinez.fyi";
 
+const peerJsCallbacks = {
+    onPeerOpen: (id) => {
+        console.log(`[PeerJS] My Peer ID is: ${id}. Am I P1 (host)? ${state.iAmPlayer1InRemote}`);
+        state.setMyPeerId(id);
 
-/**
- * Initializes the PeerJS object.
- * For the Host: It will get an ID from the PeerServer.
- * For the Joiner: It can also get an ID, though it primarily uses it to connect to the Host.
- * @param {string|null} preferredId - Optional: If host wants to attempt a specific ID (not always guaranteed).
- * @param {object} callbacks - Object containing callback functions:
- * onPeerOpen: (id) => Called when this peer is assigned an ID by the PeerServer.
- * onConnectionOpen: () => Called when a data connection to another peer is established and open.
- * onDataReceived: (data) => Called when data is received from the connected peer.
- * onConnectionClose: () => Called when the data connection is closed.
- * onError: (err) => Called when a PeerJS error occurs.
- * onNewConnection: (conn) => (Host specific) Called when a new peer connects to this host.
- */
-function initPeerSession(preferredId = null, callbacks = {}) {
-    if (peer) {
-        console.warn("PeerJS: Peer object already exists. Closing existing session before creating a new one.");
-        closePeerSession();
-    }
+        if (state.pvpRemoteActive && state.iAmPlayer1InRemote) {
+            // Store the RAW peer ID for connection purposes
+            state.setCurrentHostPeerId(id);
+            
+            // Create display ID with prefix for UI/QR
+            const gameIdForDisplay = `${state.CAJITAS_PEER_ID_PREFIX}${id}`;
+            const gameLink = `${CAJITAS_BASE_URL}/?room=${id}`; // Use RAW ID in URL
+            
+            ui.updateMessageArea(`Compartí este enlace o ID: ${gameIdForDisplay}`);
+            console.log("[PeerConnection] Game link for QR:", gameLink);
+            ui.displayQRCode(gameLink, gameIdForDisplay);
+            
+        } else if (state.pvpRemoteActive && !state.iAmPlayer1InRemote && state.currentHostPeerId) {
+            if (window.peerJsMultiplayer?.connect) {
+                console.log(`[PeerJS] Joiner (my ID ${id}) connecting to host: ${state.currentHostPeerId}`);
+                // Use the RAW peer ID for actual connection
+                window.peerJsMultiplayer.connect(state.currentHostPeerId);
+            } else {
+                console.error(`[PeerJS] Host ID not set for joiner or connect not available.`);
+                ui.showModalMessage("Error: No se pudo conectar al host. El ID del host no está configurado.");
+                state.resetNetworkState();
+                ui.updateGameModeUI();
+            }
+        }
+    },
 
-    // Assign callbacks
-    onPeerOpenCallback = callbacks.onPeerOpen || onPeerOpenCallback;
-    onConnectionOpenCallback = callbacks.onConnectionOpen || onConnectionOpenCallback;
-    onDataReceivedCallback = callbacks.onDataReceived || onDataReceivedCallback;
-    onConnectionCloseCallback = callbacks.onConnectionClose || onConnectionCloseCallback;
-    onErrorCallback = callbacks.onError || onErrorCallback;
-    onNewConnectionCallback = callbacks.onNewConnection || onNewConnectionCallback;
+    onNewConnection: (conn) => {
+        console.log(`[PeerJS] Incoming connection from ${conn.peer}.`);
+        ui.hideQRCode();
+        ui.showModalMessage("Jugador/a conectándose...");
+        ui.updateMessageArea("Jugador/a conectándose...");
+    },
 
-    try {
-        // Ensure PeerJS library is loaded
-        if (typeof Peer === 'undefined') {
-            console.error("PeerJS: Peer library (Peer constructor) is not loaded!");
-            if (onErrorCallback) onErrorCallback({type: 'init_failed', message: 'PeerJS library not loaded.', originalError: new Error('Peer is not defined')});
+    onConnectionOpen: () => {
+        console.log(`[PeerJS] Data connection opened.`);
+        state.setGamePaired(true);
+        ui.hideModalMessage();
+        ui.hideQRCode();
+
+        if (window.peerJsMultiplayer?.send) {
+            if (state.iAmPlayer1InRemote) {
+                // HOST: Send initial game setup with HOST as Player 0
+                const hostPlayerData = {
+                    id: 0, // HOST is always Player 0
+                    name: state.playersData[0]?.name || 'Host',
+                    icon: state.playersData[0]?.icon || state.AVAILABLE_ICONS[0],
+                    color: state.playersData[0]?.color || state.DEFAULT_PLAYER_COLORS[0],
+                    score: 0
+                };
+                
+                console.log("[PeerConnection] HOST sending game_init_data as Player 0:", hostPlayerData);
+                
+                window.peerJsMultiplayer.send({
+                    type: 'game_init_data',
+                    settings: {
+                        rows: state.numRows,
+                        cols: state.numCols,
+                        numPlayers: state.numPlayers,
+                        players: [hostPlayerData, null] // Player 1 slot will be filled by joiner
+                    },
+                    hostPlayer: hostPlayerData,
+                    initialTurnCounter: state.turnCounter
+                });
+                ui.updateMessageArea("¡Conectado! Esperando al Jugador 2...");
+            } else {
+                // JOINER: Send their info as Player 1
+                const joinerPlayerData = {
+                    id: 1, // JOINER is always Player 1
+                    name: state.playersData[1]?.name || 'Jugador 2',
+                    icon: state.playersData[1]?.icon || state.AVAILABLE_ICONS[1],
+                    color: state.playersData[1]?.color || state.DEFAULT_PLAYER_COLORS[1],
+                    score: 0
+                };
+                
+                console.log("[PeerConnection] JOINER sending player_join_info as Player 1:", joinerPlayerData);
+                
+                window.peerJsMultiplayer.send({
+                    type: 'player_join_info',
+                    player: joinerPlayerData
+                });
+                ui.updateMessageArea("¡Conectado! Iniciando partida...");
+            }
+        }
+    },
+
+    onDataReceived: (data) => {
+        console.log(`[PeerJS] RX RAW: Type: ${data.type}`, data);
+
+        if (!state.pvpRemoteActive && !['ping', 'game_init_data', 'player_join_info'].includes(data.type)) {
+            console.warn("[PeerJS] Ignoring data (not in PVP remote mode or not initial setup data).", data);
             return;
         }
 
-        if (preferredId) {
-            peer = new Peer(preferredId); // Attempt to use a preferred ID
-        } else {
-            peer = new Peer(); // Let PeerServer assign an ID
+        switch (data.type) {
+            case 'game_init_data':
+                if (!state.iAmPlayer1InRemote) {
+                    console.log("[PeerJS] JOINER received game_init_data from Host", data);
+                    
+                    // Set up game dimensions
+                    state.setGameDimensions(data.settings.rows, data.settings.cols);
+                    state.setNumPlayers(data.settings.numPlayers);
+                    
+                    // Get host data (Player 0) and my joiner data (Player 1)
+                    const hostData = data.hostPlayer;
+                    const myJoinerData = {
+                        id: 1,
+                        name: state.playersData[1]?.name || 'Jugador 2',
+                        icon: state.playersData[1]?.icon || state.AVAILABLE_ICONS[1],
+                        color: state.playersData[1]?.color || state.DEFAULT_PLAYER_COLORS[1],
+                        score: 0
+                    };
+
+                    // CRITICAL: Set up players array with correct assignments
+                    const remoteSessionPlayers = [
+                        { ...hostData, id: 0, score: 0 },     // Host is Player 0
+                        { ...myJoinerData, id: 1, score: 0 }  // Joiner is Player 1
+                    ];
+                    
+                    console.log("[PeerConnection] JOINER setting up players:", remoteSessionPlayers);
+                    
+                    state.setPlayersData(remoteSessionPlayers);
+                    state.setRemotePlayersData([...remoteSessionPlayers]); 
+                    state.setMyPlayerIdInRemoteGame(1); // Joiner is Player 1
+
+                    // Set up turn management
+                    state.setTurnCounter(data.initialTurnCounter || 0);
+                    state.setCurrentPlayerIndex(0); // Game always starts with Player 0 (host)
+                    state.setGameActive(true);
+                    state.setIsMyTurnInRemote(false); // Joiner waits for host to start
+
+                    // Initialize the actual game
+                    gameLogic.initializeGame(true); 
+                    ui.updateMessageArea("Esperando a que empiece el host...");
+                    ui.setBoardClickable(false); // Joiner can't click yet
+                }
+                break;
+
+            case 'player_join_info': 
+                if (state.iAmPlayer1InRemote) {
+                    console.log("[PeerJS] HOST received player_join_info from Joiner", data);
+                    
+                    // Update Player 1 data with joiner's info
+                    const hostData = {
+                        id: 0,
+                        name: state.playersData[0]?.name || 'Host',
+                        icon: state.playersData[0]?.icon || state.AVAILABLE_ICONS[0],
+                        color: state.playersData[0]?.color || state.DEFAULT_PLAYER_COLORS[0],
+                        score: 0
+                    };
+                    
+                    const joinerData = { ...data.player, id: 1, score: 0 }; // Ensure ID is 1
+                    
+                    const finalPlayers = [hostData, joinerData];
+                    
+                    console.log("[PeerConnection] HOST setting up final players:", finalPlayers);
+                    
+                    state.setPlayersData(finalPlayers);
+                    state.setRemotePlayersData([...finalPlayers]);
+                    state.setMyPlayerIdInRemoteGame(0); // Host is Player 0
+                    
+                    // Start the game
+                    state.setGameActive(true);
+                    state.setCurrentPlayerIndex(0); // Host (Player 0) starts
+                    state.setIsMyTurnInRemote(true); // Host's turn first
+
+                    gameLogic.initializeGame(true); 
+                    ui.updateMessageArea("¡Tu turno! Empezá jugando.");
+                    ui.setBoardClickable(true);
+
+                    // Send back the full game state to sync
+                    sendFullGameState();
+                }
+                break;
+
+            case 'game_move':
+                if (data.turnCounter <= state.turnCounter && state.turnCounter !== 0) {
+                    console.warn(`[PeerJS] Ignoring stale/duplicate game_move. RX TC: ${data.turnCounter}, Local TC: ${state.turnCounter}.`);
+                    return;
+                }
+                console.log("[PeerJS] Received game_move", data);
+                state.setTurnCounter(data.turnCounter);
+                gameLogic.applyRemoteMove(data.move); 
+                break;
+
+            case 'full_state_update':
+                if (data.turnCounter <= state.turnCounter && state.turnCounter !== 0 && data.turnCounter !== 0) {
+                    console.warn(`[PeerJS] Ignoring stale/duplicate full_state_update. RX TC: ${data.turnCounter}, Local TC: ${state.turnCounter}.`, data);
+                    return;
+                }
+                console.log(`[PeerJS] Received full_state_update. TC: ${data.turnCounter}`);
+                gameLogic.applyFullState(data.gameState);
+                break;
+
+            case 'restart_request':
+                ui.showModalMessageWithActions(`${data.playerName || 'El oponente'} quiere reiniciar. ¿Aceptar?`, [ 
+                    { text: "Sí", action: () => { sendPeerData({ type: 'restart_ack' }); gameLogic.resetGame(true); ui.hideModalMessage(); }},
+                    { text: "No", action: () => { sendPeerData({ type: 'restart_nak' }); ui.hideModalMessage(); }}
+                ]);
+                break;
+                
+            case 'restart_ack':
+                ui.showModalMessage("Reinicio aceptado. Nueva partida..."); 
+                setTimeout(() => { gameLogic.resetGame(true); ui.hideModalMessage(); }, 1500);
+                break;
+                
+            case 'restart_nak':
+                ui.showModalMessage("El oponente rechazó el reinicio."); 
+                setTimeout(ui.hideModalMessage, 2000);
+                break;
+
+            default:
+                console.warn(`[PeerJS] Received unhandled data type: ${data.type}`, data);
         }
-    } catch (error) {
-        console.error("PeerJS: Failed to create Peer object.", error);
-        if (onErrorCallback) onErrorCallback({type: 'init_failed', message: 'Failed to create Peer object.', originalError: error});
-        return;
-    }
+    },
 
-
-    peer.on('open', (id) => {
-        localPeerId = id;
-        console.log('PeerJS: My peer ID is:', id);
-        if (onPeerOpenCallback) {
-            onPeerOpenCallback(id);
+    onConnectionClose: () => {
+        console.log(`[PeerJS] Connection closed.`);
+        if (state.pvpRemoteActive) {
+            ui.showModalMessage("El oponente se ha desconectado."); 
+            ui.updateMessageArea("Conexión perdida.");
         }
-    });
+        state.resetNetworkState();
+        ui.updateGameModeUI();
+        if (state.gameActive) gameLogic.endGameAbruptly(); 
+    },
 
-    // Host: Listen for incoming connections
-    peer.on('connection', (conn) => {
-        console.log('PeerJS: Incoming connection from', conn.peer);
-        if (currentConnection && currentConnection.open) {
-            console.warn(`PeerJS: Already connected to ${currentConnection.peer}. Rejecting new connection from ${conn.peer}.`);
-            // Ensure conn is open before trying to close, though it might not be necessary
-            // if we are just rejecting it.
-            if (conn.open) {
-                conn.close();
-            } else {
-                // If not open, PeerJS might handle its cleanup if 'open' is never fired.
-                // Or listen for its 'open' to close, or 'error'.
-                conn.on('open', () => conn.close()); // Close it if it ever opens
+    onError: (err) => {
+        console.error(`[PeerJS] Error: `, err);
+        let message = err.message || (typeof err === 'string' ? err : 'Error desconocido'); 
+        if (err.type) {
+            message = `${err.type}: ${message}`;
+            if (err.type === 'peer-unavailable') {
+                const peerIdMsgPart = err.message.match(/peer\s(.+)/)?.[1] || 'desconocido';
+                message = `No se pudo conectar al jugador: ${peerIdMsgPart}. Verificá el ID e intentá de nuevo.`; 
             }
-            return;
         }
-        currentConnection = conn;
-        if (onNewConnectionCallback) {
-            onNewConnectionCallback(conn);
-        }
-        setupConnectionEventHandlers(currentConnection);
-    });
-
-    peer.on('disconnected', () => {
-        console.log('PeerJS: Disconnected from PeerServer. Attempting to reconnect...');
-        if (onErrorCallback) onErrorCallback({type: 'disconnected', message: 'Disconnected from PeerServer.'});
-        // PeerJS will attempt to reconnect automatically if the underlying socket closes.
-        // You might want to add logic here to inform the user or attempt a manual peer.reconnect()
-        // if auto-reconnect fails after some time, though PeerJS v1.x handles this better.
-    });
-
-    peer.on('close', () => {
-        console.log('PeerJS: Peer object closed (destroyed).');
-        localPeerId = null;
-        // currentConnection will be nulled by its own 'close' event or when peer is destroyed.
-    });
-
-    peer.on('error', (err) => {
-        console.error('PeerJS: Error:', err);
-        if (onErrorCallback) {
-            onErrorCallback(err);
-        }
-        // Specific error handling based on err.type can be done here or in the callback
-        // e.g., if (err.type === 'peer-unavailable') { ... }
-    });
-}
-
-/**
- * Sets up event handlers for a new PeerJS DataConnection.
- * @param {Peer.DataConnection} conn - The DataConnection object.
- */
-function setupConnectionEventHandlers(conn) {
-    conn.on('open', () => {
-        console.log(`PeerJS: Data connection opened with ${conn.peer}. Ready to send/receive data.`);
-        if (onConnectionOpenCallback) {
-            onConnectionOpenCallback();
-        }
-    });
-
-    conn.on('data', (data) => {
-        // Data received - pass to application logic
-        if (onDataReceivedCallback) {
-            onDataReceivedCallback(data);
-        }
-    });
-
-    conn.on('close', () => {
-        console.log(`PeerJS: Data connection with ${conn.peer} closed.`);
-        if (onConnectionCloseCallback) {
-            onConnectionCloseCallback();
-        }
-        // Ensure currentConnection is nulled if this specific connection closes
-        if (currentConnection && currentConnection.peer === conn.peer) {
-            currentConnection = null;
-        }
-    });
-
-    conn.on('error', (err) => {
-        console.error(`PeerJS: Data connection error with ${conn.peer}:`, err);
-        if (onErrorCallback) {
-            // Pass a more structured error object if desired
-            onErrorCallback({type: 'connection_error', peer: conn.peer, originalError: err});
-        }
-    });
-}
-
-/**
- * For Joiner: Connects to a host peer by their ID.
- * @param {string} hostPeerId - The ID of the host peer to connect to.
- */
-function connectToPeer(hostPeerId) {
-    if (!peer || peer.destroyed) {
-        console.error("PeerJS: Peer object not initialized or destroyed. Call initPeerSession first.");
-        if (onErrorCallback) onErrorCallback({type: 'not_initialized', message: 'PeerJS not initialized or destroyed.'});
-        return;
+        ui.showModalMessage(`Error de conexión: ${message}`);
+        ui.updateMessageArea("Error de conexión.", true);
+        state.resetNetworkState();
+        ui.updateGameModeUI();
+        ui.hideQRCode();
     }
-    if (currentConnection && currentConnection.open) {
-        console.warn(`PeerJS: Already connected to ${currentConnection.peer}. Please close it first if you want to connect to another peer.`);
-        // Optionally, you could close the existing connection here if the desired behavior is to switch.
-        // currentConnection.close();
-        return;
-    }
-    if (currentConnection) { // currentConnection exists but might not be open (e.g. still connecting)
-        console.warn(`PeerJS: Already attempting to connect to ${currentConnection.peer || 'a peer'}. Please wait or close the current attempt.`);
-        return;
-    }
-
-    console.log(`PeerJS: Attempting to connect to host with ID: ${hostPeerId}`);
-    try {
-        currentConnection = peer.connect(hostPeerId, {
-            reliable: true // Ensures ordered and guaranteed delivery, good for game state
-            // serialization: 'json' // Default is binary (efficient), json is human-readable
-        });
-
-        if (!currentConnection) {
-            // This case should ideally not happen if peer.connect itself doesn't throw.
-            // PeerJS usually returns a connection object even if the connection fails later.
-            console.error("PeerJS: peer.connect() returned null or undefined. This is unexpected.");
-            if (onErrorCallback) onErrorCallback({type: 'connect_failed', message: 'peer.connect() failed to return a connection object.', peerId: hostPeerId });
-            return;
-        }
-        // Setup handlers immediately. The 'open' event will fire if connection succeeds.
-        setupConnectionEventHandlers(currentConnection);
-
-    } catch (error) {
-        // This would catch synchronous errors in the peer.connect() call itself.
-        console.error("PeerJS: Error when trying to call peer.connect():", error);
-        if (onErrorCallback) onErrorCallback({type: 'connect_exception', message: 'Exception during peer.connect().', peerId: hostPeerId, originalError: error });
-    }
-}
-
-/**
- * Sends data to the currently connected peer.
- * @param {any} data - The data to send (can be any JSON-serializable type if using JSON serialization, or binary).
- */
-function sendData(data) {
-    if (currentConnection && currentConnection.open) {
-        try {
-            currentConnection.send(data);
-        } catch (error) {
-            console.error("PeerJS: Error sending data:", error);
-            if (onErrorCallback) onErrorCallback({type: 'send_error', message: 'Failed to send data.', originalError: error});
-        }
-    } else {
-        console.warn("PeerJS: No open connection or connection not ready. Cannot send data.");
-        // Optionally, queue the data or inform the user/application logic.
-        if (onErrorCallback && (!currentConnection || !currentConnection.open) ) {
-             onErrorCallback({type: 'send_error_no_connection', message: 'No open connection to send data.'});
-        }
-    }
-}
-
-/**
- * Closes the current data connection and/or destroys the Peer object.
- */
-function closePeerSession() {
-    console.log("PeerJS: Closing peer session...");
-    if (currentConnection) {
-        try {
-            if (currentConnection.open) { // Check if it's open before trying to close
-                currentConnection.close();
-                console.log("PeerJS: Current data connection closed.");
-            } else {
-                console.log("PeerJS: Current data connection was not open, no need to close explicitly here.");
-                // If it's in a connecting state, closing the peer object later will handle it.
-            }
-        } catch (e) {
-            // This catch is for errors during the .close() call itself.
-            console.warn("PeerJS: Error closing data connection", e);
-        }
-        currentConnection = null; // Nullify regardless of successful close, to allow new connections.
-    }
-
-    if (peer) {
-        try {
-            if (!peer.destroyed) {
-                peer.destroy(); // Destroys the peer, severing all connections and cleaning up.
-                console.log("PeerJS: Peer object destroyed.");
-            } else {
-                console.log("PeerJS: Peer object was already destroyed.");
-            }
-        } catch (e) {
-            console.warn("PeerJS: Error destroying peer object", e);
-        }
-        peer = null; // Nullify the peer object.
-    }
-    localPeerId = null; // Clear the local peer ID.
-}
-
-/**
- * Gets the local peer's ID.
- * @returns {string|null} The local peer ID, or null if not yet assigned.
- */
-function getLocalPeerId() {
-    return localPeerId;
-}
-
-
-// Expose functions to the global scope for your game modules to use
-window.peerJsMultiplayer = {
-    init: initPeerSession,
-    connect: connectToPeer,
-    send: sendData,
-    close: closePeerSession,
-    getLocalId: getLocalPeerId
 };
 
-// console.log("Assigned window.peerJsMultiplayer:", typeof window.peerJsMultiplayer, window.peerJsMultiplayer);
-console.log("PeerJS multiplayer script loaded and attached to window.peerJsMultiplayer.");
+// Initialize PeerJS with optional custom callbacks
+export function ensurePeerInitialized(customCallbacks = {}) {
+    if (window.peerJsMultiplayer?.init) {
+        const effectiveCallbacks = {
+            ...peerJsCallbacks,
+            onPeerOpen: (id) => {
+                peerJsCallbacks.onPeerOpen(id);
+                customCallbacks.onPeerOpen?.(id);
+            },
+            onError: (err) => {
+                peerJsCallbacks.onError(err);
+                customCallbacks.onError?.(err);
+            },
+            onNewConnection: (conn) => {
+                peerJsCallbacks.onNewConnection(conn);
+                customCallbacks.onNewConnection?.(conn);
+            },
+            onConnectionOpen: () => {
+                peerJsCallbacks.onConnectionOpen();
+                customCallbacks.onConnectionOpen?.();
+            },
+            onDataReceived: (data) => {
+                peerJsCallbacks.onDataReceived(data);
+                customCallbacks.onDataReceived?.(data);
+            },
+            onConnectionClose: () => {
+                peerJsCallbacks.onConnectionClose();
+                customCallbacks.onConnectionClose?.();
+            }
+        };
+        window.peerJsMultiplayer.init(null, effectiveCallbacks);
+    } else {
+        console.error("[PeerJS] peerJsMultiplayer.init not found.");
+        customCallbacks.onError?.({ type: 'init_failed', message: 'Módulo multijugador no disponible.' }); 
+    }
+}
+
+export function initializePeerAsHost(stopPreviousGameCallback) {
+    stopPreviousGameCallback?.();
+    state.setPvpRemoteActive(true);
+    state.setIAmPlayer1InRemote(true);
+    state.setGamePaired(false);
+    state.setCurrentHostPeerId(null); 
+    state.setMyPlayerIdInRemoteGame(0); // HOST is Player 0
+
+    ui.updateGameModeUI();
+    ui.updateMessageArea("Estableciendo conexión como Host..."); 
+    ui.hideModalMessage();
+
+    ensurePeerInitialized();
+}
+
+export function initializePeerAsJoiner(rawHostIdFromUrlOrPrompt, stopPreviousGameCallback) {
+    stopPreviousGameCallback?.();
+    state.setPvpRemoteActive(true);
+    state.setIAmPlayer1InRemote(false);
+    state.setGamePaired(false);
+    state.setMyPlayerIdInRemoteGame(1); // JOINER is Player 1
+
+    ui.updateGameModeUI();
+    ui.hideModalMessage();
+
+    // Use the raw host ID directly (no prefix manipulation needed)
+    const hostIdToConnect = rawHostIdFromUrlOrPrompt;
+
+    if (!hostIdToConnect?.trim()) {
+        ui.showModalMessage("ID del Host inválido."); 
+        ui.updateMessageArea("Cancelado."); 
+        state.resetNetworkState();
+        ui.updateGameModeUI();
+        return;
+    }
+
+    state.setCurrentHostPeerId(hostIdToConnect.trim()); // Store the raw ID
+    ui.updateMessageArea(`Intentando conectar a ${hostIdToConnect}...`); 
+    ui.showModalMessage(`Conectando a ${hostIdToConnect}...`); 
+
+    ensurePeerInitialized(); 
+}
+
+export function connectToDiscoveredPeer(opponentRawPeerId) {
+    if (!opponentRawPeerId) {
+        console.error("connectToDiscoveredPeer: opponentRawPeerId is null or undefined.");
+        peerJsCallbacks.onError?.({type: 'connect_error', message: 'ID de par remoto nulo.'}); 
+        return;
+    }
+    
+    if (window.peerJsMultiplayer?.connect) {
+        console.log(`[PeerJS] Attempting to connect to discovered peer: ${opponentRawPeerId}`);
+        state.setPvpRemoteActive(true);
+        state.setCurrentHostPeerId(opponentRawPeerId); // Store raw ID
+        window.peerJsMultiplayer.connect(opponentRawPeerId); // Connect with raw ID
+    } else {
+        console.error("connectToDiscoveredPeer: peerJsMultiplayer.connect not found.");
+        peerJsCallbacks.onError?.({type: 'connect_error', message: 'Función de conexión P2P no disponible.'}); 
+    }
+}
+
+export function sendPeerData(data) {
+    if (window.peerJsMultiplayer?.send && state.gamePaired) {
+        console.log(`[PeerJS] TX: Type: ${data.type}`, data);
+        window.peerJsMultiplayer.send(data);
+    } else if (!state.gamePaired) {
+        console.warn(`[PeerJS] Cannot send, game not paired. Type: ${data.type}.`, data);
+    } else {
+        console.error(`[PeerJS] peerJsMultiplayer.send not available. Type: ${data.type}.`, data);
+    }
+}
+
+export function closePeerSession() {
+    if (window.peerJsMultiplayer?.close) {
+        window.peerJsMultiplayer.close();
+    }
+}
+
+export function sendFullGameState() {
+    if (!state.iAmPlayer1InRemote || !state.gamePaired) return; 
+
+    const gameStatePayload = {
+        numRows: state.numRows,
+        numCols: state.numCols,
+        numPlayers: state.numPlayers,
+        playersData: state.playersData.map(p => ({ 
+            name: p.name, 
+            icon: p.icon, 
+            color: p.color, 
+            score: p.score, 
+            id: p.id 
+        })),
+        currentPlayerIndex: state.currentPlayerIndex,
+        horizontalLines: state.horizontalLines,
+        verticalLines: state.verticalLines,
+        boxes: state.boxes,
+        filledBoxesCount: state.filledBoxesCount,
+        gameActive: state.gameActive,
+        turnCounter: state.turnCounter
+    };
+    sendPeerData({ 
+        type: 'full_state_update', 
+        gameState: gameStatePayload, 
+        turnCounter: state.turnCounter 
+    });
+}
