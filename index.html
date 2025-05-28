@@ -1,185 +1,270 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cajitas de Danielle - ¡A Jugar!</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+// main.js -- Main Application Orchestrator for Cajitas de Dani
 
-    <style>
-        body {
-            font-family: 'Comic Neue', 'Inter', sans-serif;
-        }
-        .line-slot {
-            cursor: pointer;
-            fill: rgba(0,0,0,0.03);
-            transition: fill 0.2s;
-        }
-        .line-slot:hover {
-            fill: rgba(128, 0, 128, 0.2);
-        }
-        .line-slot.disabled-slot:hover { /* Style for when board is not clickable */
-            fill: rgba(0,0,0,0.03);
-            cursor: default;
-        }
-        .line-drawn {
-            stroke-linecap: round;
-            transition: stroke-dashoffset 0.4s ease-out, opacity 0.3s ease-out;
-        }
-        .box-text {
-            font-weight: bold;
-            text-anchor: middle;
-            dominant-baseline: middle;
-            pointer-events: none;
-        }
-        .box-filled-anim {
-            transition: transform 0.35s cubic-bezier(0.68, -0.55, 0.27, 1.55);
-        }
-        .box-text-anim {
-            transition: transform 0.35s cubic-bezier(0.68, -0.55, 0.27, 1.55), opacity 0.3s ease-out;
-            transition-delay: 0.05s;
-        }
-        #game-board-svg {
-            touch-action: none;
-        }
-        .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); }
-        .modal-content { background-color: #fff0f5; margin: 10% auto; padding: 25px; border: 2px solid #ffb6c1; width: 90%; max-width: 450px; border-radius: 12px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
-        .modal-close-button { background-color: #FF69B4; color: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; margin-top: 20px; font-weight: bold; transition: background-color 0.2s; }
-        .modal-close-button:hover { background-color: #FF1493; }
+// VERY EARLY LOG: What is the URL when the script first runs?
+console.log("[Main - Pre-DOM] Initial window.location.href:", window.location.href);
+console.log("[Main - Pre-DOM] Initial window.location.search:", window.location.search);
 
-        .player-setup-card {
-            border: 2px solid;
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 10px;
-            background-color: #fdf4f6;
+import * as state from './state.js';
+import * as ui from './ui.js';
+import * as gameLogic from './gameLogic.js';
+import * as sound from './sound.js';
+import * as peerConnection from './peerConnection.js';
+import * as matchmaking from './matchmaking_supabase.js';
+
+document.addEventListener('DOMContentLoaded', () => {
+    console.log("Cajitas de Dani: DOM fully loaded and parsed");
+    console.log("[Main - DOMContentLoaded] window.location.href:", window.location.href);
+    console.log("[Main - DOMContentLoaded] window.location.search:", window.location.search);
+
+
+    // --- Initial UI Setup ---
+    ui.showSetupScreen();
+    if (ui.numPlayersInput) {
+        ui.generatePlayerSetupFields(parseInt(ui.numPlayersInput.value));
+    }
+    ui.updateGameModeUI();
+    if (ui.undoBtn) ui.undoBtn.disabled = true;
+
+
+    // --- Event Listeners for Setup ---
+    ui.startGameBtn?.addEventListener('click', async () => {
+        if (!state.soundsInitialized) {
+            await sound.initSounds();
         }
-        .player-setup-card label {
-            display: block;
-            margin-bottom: 4px;
-            font-weight: bold;
+        if (state.soundsInitialized) {
+            sound.playSound(sound.uiClickSound, "C4", "16n");
+            sound.playSound(sound.gameStartSound, "C4", "8n", Tone.now() + 0.1);
         }
-        .player-setup-card input[type="text"],
-        .player-setup-card select,
-        .player-setup-card input[type="color"] {
-            width: 100%;
-            padding: 8px;
-            border-radius: 6px;
-            border: 1px solid #ddd;
-            margin-bottom: 8px;
-            box-sizing: border-box;
+        stopAnyActiveGameAndMatchmaking();
+        gameLogic.initializeGame(false);
+    });
+
+    ui.resetGameBtn?.addEventListener('click', () => {
+        if (state.soundsInitialized) sound.playSound(sound.uiClickSound, "E3", "16n");
+        stopAnyActiveGameAndMatchmaking();
+        gameLogic.resetGame(true);
+    });
+
+    ui.undoBtn?.addEventListener('click', () => {
+        if (state.soundsInitialized) sound.playSound(sound.undoSound, "E3", "16n");
+        gameLogic.handleUndo();
+    });
+
+    ui.numPlayersInput?.addEventListener('input', (e) => {
+        const count = parseInt(e.target.value);
+        if (count >= 2 && count <= 4 && !state.pvpRemoteActive) {
+            ui.generatePlayerSetupFields(count);
+        } else if (state.pvpRemoteActive && ui.numPlayersInput) {
+            ui.numPlayersInput.value = "2";
         }
-        .player-setup-card input[type="color"] {
-            height: 40px;
+    });
+
+    // --- Modal Listeners ---
+    ui.modalCloseBtn?.addEventListener('click', () => {
+        if (state.soundsInitialized) sound.playSound(sound.modalCloseSound, "C2", "32n");
+        ui.hideModalMessage();
+    });
+    window.addEventListener('click', (event) => {
+        if (event.target === ui.customModal) {
+            if (state.soundsInitialized) sound.playSound(sound.modalCloseSound, "C2", "32n");
+            ui.hideModalMessage();
         }
-        #undo-btn:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
-            opacity: 0.7;
+    });
+
+    // --- Network Play Button Event Listeners ---
+    const hostButton = document.getElementById('host-cajitas-btn');
+    hostButton?.addEventListener('click', async () => {
+        if (!state.soundsInitialized) await sound.initSounds();
+        if (state.soundsInitialized) sound.playSound(sound.uiClickSound, "C4", "16n");
+        
+        stopAnyActiveGameAndMatchmaking();
+
+        if(ui.numPlayersInput) ui.numPlayersInput.value = "2";
+        state.setNumPlayers(2);
+        ui.generatePlayerSetupFields(2);
+
+        const hostName = document.getElementById('player-name-0')?.value || 'Host';
+        const hostIcon = document.getElementById('player-icon-0')?.value || state.AVAILABLE_ICONS[0];
+        const hostColor = document.getElementById('player-color-0')?.value || state.DEFAULT_PLAYER_COLORS[0];
+        state.setPlayersData([{ id: 0, name: hostName, icon: hostIcon, color: hostColor, score: 0 }]);
+        
+        peerConnection.initializePeerAsHost(stopAnyActiveGameAndMatchmaking);
+        ui.updateGameModeUI();
+    });
+
+    const playRandomButton = document.getElementById('play-random-cajitas-btn');
+    playRandomButton?.addEventListener('click', async () => {
+        if (!state.soundsInitialized) await sound.initSounds();
+        if (state.soundsInitialized) sound.playSound(sound.uiClickSound, "D4", "16n");
+
+        stopAnyActiveGameAndMatchmaking();
+
+        if(ui.numPlayersInput) ui.numPlayersInput.value = "2";
+        state.setNumPlayers(2);
+        ui.generatePlayerSetupFields(2);
+
+        const myName = document.getElementById('player-name-0')?.value || 'Jugador Aleatorio';
+        const myIcon = document.getElementById('player-icon-0')?.value || state.AVAILABLE_ICONS[Math.floor(Math.random() * state.AVAILABLE_ICONS.length)];
+        const myColor = document.getElementById('player-color-0')?.value || state.DEFAULT_PLAYER_COLORS[0];
+
+        ui.showModalMessage("Buscando un oponente al azar...");
+        if (ui.cancelMatchmakingButton) ui.cancelMatchmakingButton.style.display = 'inline-block';
+        ui.updateGameModeUI();
+
+        peerConnection.ensurePeerInitialized({
+            onPeerOpen: (localPeerId) => {
+                if (localPeerId) {
+                    state.setPlayersData([
+                        {id: 0, name: myName, icon: myIcon, color: myColor, score: 0},
+                        {id: 1, name: "Oponente", icon: "❓", color: state.DEFAULT_PLAYER_COLORS[1], score: 0}
+                    ]);
+                    state.setRemotePlayersData([...state.playersData]);
+                    ui.updateScoresDisplay();
+
+                    matchmaking.joinQueue(localPeerId, {
+                        onSearching: () => {
+                            ui.updateMessageArea("Buscando oponente en la red...");
+                        },
+                        onMatchFound: (opponentRawPeerId) => {
+                            ui.hideModalMessage();
+                            ui.showModalMessage(`¡Oponente encontrado! (${opponentRawPeerId.substring(0,8)}...). Conectando...`);
+                            if (ui.cancelMatchmakingButton) ui.cancelMatchmakingButton.classList.add('hidden');
+                            
+                            if (localPeerId < opponentRawPeerId) {
+                                console.log("[Matchmaking] Decided to be P1 (connector) as my ID is smaller.");
+                                state.setIAmPlayer1InRemote(true);
+                                state.setMyPlayerIdInRemoteGame(0);
+                                state.playersData[0] = {id:0, name: myName, icon: myIcon, color: myColor, score:0};
+                                state.playersData[1] = {id:1, name: "Oponente Remoto", icon: "❓", color: state.DEFAULT_PLAYER_COLORS[1], score:0};
+                            } else {
+                                console.log("[Matchmaking] Decided to be P2 (listener) as my ID is larger.");
+                                state.setIAmPlayer1InRemote(false);
+                                state.setMyPlayerIdInRemoteGame(1);
+                                state.playersData[0] = {id:0, name: "Oponente Remoto", icon: "❓", color: state.DEFAULT_PLAYER_COLORS[0], score:0};
+                                state.playersData[1] = {id:1, name: myName, icon: myIcon, color: myColor, score:0};
+                            }
+                            state.setRemotePlayersData([...state.playersData]);
+                            ui.updateScoresDisplay();
+
+                            peerConnection.connectToDiscoveredPeer(opponentRawPeerId);
+                        },
+                        onError: (errMsg) => {
+                            ui.hideModalMessage();
+                            ui.showModalMessage(`Error de Matchmaking: ${errMsg}`);
+                            if (ui.cancelMatchmakingButton) ui.cancelMatchmakingButton.classList.add('hidden');
+                            ui.updateGameModeUI();
+                        },
+                        onTimeout: () => {
+                            ui.hideModalMessage();
+                            ui.showModalMessage("No se encontraron oponentes al azar. Intentá de nuevo más tarde.");
+                            if (ui.cancelMatchmakingButton) ui.cancelMatchmakingButton.classList.add('hidden');
+                            ui.updateGameModeUI();
+                        }
+                    });
+                } else {
+                    ui.hideModalMessage();
+                    ui.showModalMessage("Error: No se pudo obtener un ID de PeerJS para el matchmaking.");
+                    if (ui.cancelMatchmakingButton) ui.cancelMatchmakingButton.classList.add('hidden');
+                    ui.updateGameModeUI();
+                }
+            },
+            onError: (err) => {
+                ui.hideModalMessage();
+                ui.showModalMessage(`Error al iniciar PeerJS para matchmaking: ${err.type || 'Desconocido'}`);
+                if (ui.cancelMatchmakingButton) ui.cancelMatchmakingButton.classList.add('hidden');
+                ui.updateGameModeUI();
+            }
+        });
+    });
+
+    if (ui.cancelMatchmakingButton) {
+        ui.cancelMatchmakingButton.addEventListener('click', () => {
+            if (state.soundsInitialized) sound.playSound(sound.uiClickSound, "A3", "16n");
+            matchmaking.leaveQueue();
+            ui.hideModalMessage();
+            ui.updateMessageArea("Búsqueda de partida cancelada.");
+            if (ui.cancelMatchmakingButton) ui.cancelMatchmakingButton.classList.add('hidden');
+            stopAnyActiveGameAndMatchmaking();
+            ui.updateGameModeUI();
+        });
+    }
+
+    function stopAnyActiveGameAndMatchmaking(preserveUIScreen = false) {
+        if (state.gameActive && !preserveUIScreen) {
+            gameLogic.resetGame(true);
+        } else if (state.gameActive) {
+            state.setGameActive(false);
         }
-        .network-btn {
-            background-color: #8A2BE2;
-            color: white;
-            font-weight: bold;
-            padding: 10px 15px;
-            border-radius: 8px;
-            margin-top: 5px;
-            margin-right: 5px;
-            transition: background-color 0.2s;
+        matchmaking.leaveQueue();
+        peerConnection.closePeerSession();
+        state.resetNetworkState();
+        console.log("Any active game/network/matchmaking session stopped.");
+        if (!preserveUIScreen) {
+            ui.updateGameModeUI();
         }
-        .network-btn:hover {
-            background-color: #6A1B9A;
+        if (ui.cancelMatchmakingButton) ui.cancelMatchmakingButton.classList.add('hidden');
+    }
+
+    function checkUrlForRoomAndJoin() {
+        console.log("[Main - checkUrlForRoomAndJoin START] Current href:", window.location.href);
+        console.log("[Main - checkUrlForRoomAndJoin START] Current search:", window.location.search);
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomIdFromUrl = urlParams.get('room');
+        console.log("[Main] URL Join Check: roomIdFromUrl Extracted:", roomIdFromUrl);
+
+        if (roomIdFromUrl && roomIdFromUrl.startsWith('cajitas-')) {
+            console.log("[Main] URL Join Check: Valid 'cajitas-' room ID found:", roomIdFromUrl, ". Attempting to join...");
+            const attemptSoundAndJoin = async () => {
+                if (!state.soundsInitialized) {
+                    // Attempt to initialize sounds, user might need to click for this to fully work on first load
+                    try {
+                        await sound.initSounds();
+                    } catch(e) {
+                        console.warn("Sound init on URL join needs user gesture or prior interaction.", e);
+                    }
+                }
+                
+                stopAnyActiveGameAndMatchmaking(true);
+
+                if(ui.setupSection) ui.setupSection.classList.add('hidden');
+                if(ui.gameArea) ui.gameArea.classList.remove('hidden');
+                ui.updateMessageArea(`Conectando a la sala ${roomIdFromUrl}...`);
+                if(ui.mainTitle) ui.mainTitle.textContent = "Uniéndose a Partida...";
+
+
+                if(ui.numPlayersInput) ui.numPlayersInput.value = "2";
+                state.setNumPlayers(2);
+                ui.generatePlayerSetupFields(2);
+
+                const joinerName = document.getElementById('player-name-0')?.value || 'Jugador URL';
+                const joinerIcon = document.getElementById('player-icon-0')?.value || state.AVAILABLE_ICONS[1];
+                const joinerColor = document.getElementById('player-color-0')?.value || state.DEFAULT_PLAYER_COLORS[1];
+
+                state.setPlayersData([
+                     {id: 0, name: "Host (Conectando)", icon: "❓", color: "#cccccc", score: 0},
+                     {id: 1, name: joinerName, icon: joinerIcon, color: joinerColor, score: 0}
+                ]);
+                state.setRemotePlayersData([...state.playersData]);
+                ui.updateScoresDisplay();
+
+                peerConnection.initializePeerAsJoiner(roomIdFromUrl, stopAnyActiveGameAndMatchmaking);
+                                
+                window.history.replaceState({}, document.title, window.location.pathname);
+                console.log("[Main] URL Join: Cleared room parameter from URL.");
+            };
+            attemptSoundAndJoin();
+        } else {
+            console.log("[Main] URL Join Check: No valid 'cajitas-' room ID found in URL or roomIdFromUrl is null.");
+            peerConnection.ensurePeerInitialized({
+                onPeerOpen: (id) => console.log('[Main] PeerJS session pre-initialized on load (no room in URL). ID:', id),
+                onError: (err) => console.warn('[Main] Benign PeerJS pre-init error (no room in URL):', err.type)
+            });
         }
-        #network-info-area.hidden {
-            display: none;
-        }
-    </style>
-</head>
-<body class="bg-pink-50 flex flex-col items-center justify-center min-h-screen p-4">
+    }
 
-    <div id="game-container" class="bg-white shadow-xl rounded-lg p-4 sm:p-8 w-full max-w-2xl">
-        <h1 id="main-title" class="text-3xl sm:text-4xl font-bold text-center text-pink-600 mb-6" style="font-family: 'Comic Neue', cursive;">Cajitas de Danielle</h1>
-
-        <div id="setup-section" class="space-y-4">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label for="rows" class="block text-sm font-medium text-gray-700">Filas de Puntos (2-10):</label>
-                    <input type="number" id="rows" name="rows" value="4" min="2" max="10" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm">
-                </div>
-                <div>
-                    <label for="cols" class="block text-sm font-medium text-gray-700">Columnas de Puntos (2-10):</label>
-                    <input type="number" id="cols" name="cols" value="4" min="2" max="10" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm">
-                </div>
-            </div>
-            <div>
-                <label for="num-players-input" class="block text-sm font-medium text-gray-700">Cantidad de Jugadores/as (2-4 Local, 2 Remoto):</label>
-                <input type="number" id="num-players-input" name="num-players-input" value="2" min="2" max="4" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm">
-            </div>
-
-            <div id="player-customization-area" class="mt-4 space-y-3">
-            </div>
-
-            <button id="start-game-btn" class="w-full bg-pink-500 hover:bg-pink-600 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-150 ease-in-out text-lg mt-4">
-                ¡Empezar Juego Local! ✨
-            </button>
-
-            <div class="mt-6 pt-4 border-t border-pink-200">
-                <h2 class="text-xl font-semibold text-center text-purple-700 mb-3">Jugar en Red 🌐</h2>
-                <div class="flex flex-wrap justify-center gap-3">
-                    <button id="host-cajitas-btn" class="network-btn">Hostear Juego de Cajitas 🏰</button>
-                    <button id="play-random-cajitas-btn" class="network-btn">Jugar con Alguien al Azar 🎲</button>
-                </div>
-            </div>
-
-            <div id="network-info-area" class="mt-4 p-4 bg-pink-100 rounded-lg text-center hidden">
-                <h3 class="text-lg font-semibold text-pink-700">Juego Remoto Iniciado</h3>
-                <div id="qr-code-container" class="my-2 inline-block bg-white p-2 rounded shadow">
-                    </div>
-                <button id="copy-game-id-btn" class="mt-2 bg-blue-500 hover:bg-blue-600 text-white text-sm py-2 px-4 rounded shadow-md">Copiar Enlace del Juego</button>
-                <button id="cancel-matchmaking-btn" class="mt-2 bg-red-500 hover:bg-red-600 text-white text-sm py-2 px-4 rounded shadow-md hidden">Cancelar Búsqueda</button>
-            </div>
-        </div>
-
-        <div id="game-area" class="hidden">
-            <div id="info-panel" class="mb-4 p-3 bg-pink-50 rounded-lg shadow">
-                <div id="player-turn" class="text-xl font-bold text-center mb-2"></div>
-                <div id="scores" class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-center">
-                </div>
-            </div>
-
-            <div class="aspect-square w-full max-w-xl mx-auto bg-purple-100 rounded-md overflow-hidden shadow-inner">
-                 <svg id="game-board-svg" class="w-full h-full"></svg>
-            </div>
-
-            <div id="message-area" class="mt-4 text-center text-md font-medium text-red-500 h-6"></div>
-
-            <div class="flex space-x-2 mt-6">
-                <button id="undo-btn" class="w-1/2 bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-150 ease-in-out text-lg">
-                    Deshacer ↩️
-                </button>
-                <button id="reset-game-btn" class="w-1/2 bg-amber-400 hover:bg-amber-500 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-150 ease-in-out text-lg">
-                    Juego Nuevo 💖
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <div id="custom-modal" class="modal">
-        <div class="modal-content">
-            <p id="modal-message-text" class="text-lg text-gray-700"></p>
-            <button id="modal-close-btn" class="modal-close-button">¡Dale!</button>
-            <div id="modal-dynamic-buttons" class="mt-4 flex justify-center space-x-4"></div>
-        </div>
-    </div>
-
-    <script src="peerjs-multiplayer.js"></script>
-    <script type="module" src="main.js"></script>
-</body>
-</html>
+    // Call checkUrlForRoomAndJoin after the initial setup UI might have been shown by DOMContentLoaded.
+    // DOMContentLoaded ensures that basic DOM elements are available.
+    checkUrlForRoomAndJoin();
+    console.log("Cajitas de Dani: Main script initialized.");
+});
