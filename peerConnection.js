@@ -1,4 +1,4 @@
-// peerConnection.js - FIXED VERSION
+// peerConnection.js - FIXED VERSION with proper player assignment
 
 import * as state from './state.js';
 import * as ui from './ui.js';
@@ -52,34 +52,45 @@ const peerJsCallbacks = {
 
         if (window.peerJsMultiplayer?.send) {
             if (state.iAmPlayer1InRemote) {
-                // Host sends initial game setup
-                const hostPlayerData = state.playersData.find(p => p.id === state.myPlayerIdInRemoteGame) || state.playersData[0];
+                // HOST: Send initial game setup with HOST as Player 0
+                const hostPlayerData = {
+                    id: 0, // HOST is always Player 0
+                    name: state.playersData[0]?.name || 'Host',
+                    icon: state.playersData[0]?.icon || state.AVAILABLE_ICONS[0],
+                    color: state.playersData[0]?.color || state.DEFAULT_PLAYER_COLORS[0],
+                    score: 0
+                };
+                
+                console.log("[PeerConnection] HOST sending game_init_data as Player 0:", hostPlayerData);
+                
                 window.peerJsMultiplayer.send({
                     type: 'game_init_data',
                     settings: {
                         rows: state.numRows,
                         cols: state.numCols,
                         numPlayers: state.numPlayers,
-                        players: state.playersData.map(p => ({ 
-                            name: p.name, 
-                            icon: p.icon, 
-                            color: p.color, 
-                            id: p.id 
-                        }))
+                        players: [hostPlayerData, null] // Player 1 slot will be filled by joiner
                     },
                     hostPlayer: hostPlayerData,
                     initialTurnCounter: state.turnCounter
                 });
                 ui.updateMessageArea("¡Conectado! Esperando al Jugador 2...");
             } else {
-                // Joiner sends their info
-                const joinerPlayerData = state.playersData.find(p => p.id === state.myPlayerIdInRemoteGame) || state.playersData[1];
-                if(joinerPlayerData) {
-                    window.peerJsMultiplayer.send({
-                        type: 'player_join_info',
-                        player: joinerPlayerData
-                    });
-                }
+                // JOINER: Send their info as Player 1
+                const joinerPlayerData = {
+                    id: 1, // JOINER is always Player 1
+                    name: state.playersData[1]?.name || 'Jugador 2',
+                    icon: state.playersData[1]?.icon || state.AVAILABLE_ICONS[1],
+                    color: state.playersData[1]?.color || state.DEFAULT_PLAYER_COLORS[1],
+                    score: 0
+                };
+                
+                console.log("[PeerConnection] JOINER sending player_join_info as Player 1:", joinerPlayerData);
+                
+                window.peerJsMultiplayer.send({
+                    type: 'player_join_info',
+                    player: joinerPlayerData
+                });
                 ui.updateMessageArea("¡Conectado! Iniciando partida...");
             }
         }
@@ -96,53 +107,78 @@ const peerJsCallbacks = {
         switch (data.type) {
             case 'game_init_data':
                 if (!state.iAmPlayer1InRemote) {
-                    console.log("[PeerJS] Joiner received game_init_data from Host", data);
+                    console.log("[PeerJS] JOINER received game_init_data from Host", data);
                     
-                    // Set up game dimensions and players
+                    // Set up game dimensions
                     state.setGameDimensions(data.settings.rows, data.settings.cols);
                     state.setNumPlayers(data.settings.numPlayers);
                     
+                    // Get host data (Player 0) and my joiner data (Player 1)
                     const hostData = data.hostPlayer;
-                    const myData = state.playersData.find(p => p.id === state.myPlayerIdInRemoteGame) || state.playersData[1]; 
+                    const myJoinerData = {
+                        id: 1,
+                        name: state.playersData[1]?.name || 'Jugador 2',
+                        icon: state.playersData[1]?.icon || state.AVAILABLE_ICONS[1],
+                        color: state.playersData[1]?.color || state.DEFAULT_PLAYER_COLORS[1],
+                        score: 0
+                    };
 
+                    // CRITICAL: Set up players array with correct assignments
                     const remoteSessionPlayers = [
-                        { ...hostData, id: 0, score: 0 }, 
-                        { ...myData, id: 1, score: 0 }   
+                        { ...hostData, id: 0, score: 0 },     // Host is Player 0
+                        { ...myJoinerData, id: 1, score: 0 }  // Joiner is Player 1
                     ];
+                    
+                    console.log("[PeerConnection] JOINER setting up players:", remoteSessionPlayers);
+                    
                     state.setPlayersData(remoteSessionPlayers);
                     state.setRemotePlayersData([...remoteSessionPlayers]); 
+                    state.setMyPlayerIdInRemoteGame(1); // Joiner is Player 1
 
                     // Set up turn management
                     state.setTurnCounter(data.initialTurnCounter || 0);
-                    state.setCurrentPlayerIndex(data.initialTurnCounter % state.numPlayers); 
+                    state.setCurrentPlayerIndex(0); // Game always starts with Player 0 (host)
                     state.setGameActive(true);
-                    state.setIsMyTurnInRemote(state.currentPlayerIndex === state.myPlayerIdInRemoteGame);
+                    state.setIsMyTurnInRemote(false); // Joiner waits for host to start
 
                     // Initialize the actual game
                     gameLogic.initializeGame(true); 
-                    ui.updateMessageArea(state.isMyTurnInRemote ? "¡Tu turno!" : `Esperando a ${state.playersData[state.currentPlayerIndex]?.name}...`);
-                    ui.setBoardClickable(state.isMyTurnInRemote); 
+                    ui.updateMessageArea("Esperando a que empiece el host...");
+                    ui.setBoardClickable(false); // Joiner can't click yet
                 }
                 break;
 
             case 'player_join_info': 
                 if (state.iAmPlayer1InRemote) {
-                    console.log("[PeerJS] Host received player_join_info from Joiner", data);
+                    console.log("[PeerJS] HOST received player_join_info from Joiner", data);
                     
-                    // Update player 2 data
-                    if (state.playersData.length === 2) { 
-                        state.playersData[1] = { ...data.player, id: 1, score: 0 };
-                        state.setRemotePlayersData([...state.playersData]);
-                    }
+                    // Update Player 1 data with joiner's info
+                    const hostData = {
+                        id: 0,
+                        name: state.playersData[0]?.name || 'Host',
+                        icon: state.playersData[0]?.icon || state.AVAILABLE_ICONS[0],
+                        color: state.playersData[0]?.color || state.DEFAULT_PLAYER_COLORS[0],
+                        score: 0
+                    };
+                    
+                    const joinerData = { ...data.player, id: 1, score: 0 }; // Ensure ID is 1
+                    
+                    const finalPlayers = [hostData, joinerData];
+                    
+                    console.log("[PeerConnection] HOST setting up final players:", finalPlayers);
+                    
+                    state.setPlayersData(finalPlayers);
+                    state.setRemotePlayersData([...finalPlayers]);
+                    state.setMyPlayerIdInRemoteGame(0); // Host is Player 0
                     
                     // Start the game
                     state.setGameActive(true);
-                    state.setCurrentPlayerIndex(state.turnCounter % state.numPlayers); 
-                    state.setIsMyTurnInRemote(state.currentPlayerIndex === state.myPlayerIdInRemoteGame); 
+                    state.setCurrentPlayerIndex(0); // Host (Player 0) starts
+                    state.setIsMyTurnInRemote(true); // Host's turn first
 
                     gameLogic.initializeGame(true); 
-                    ui.updateMessageArea(state.isMyTurnInRemote ? "¡Tu turno!" : `Esperando a ${state.playersData[state.currentPlayerIndex]?.name}...`);
-                    ui.setBoardClickable(state.isMyTurnInRemote);
+                    ui.updateMessageArea("¡Tu turno! Empezá jugando.");
+                    ui.setBoardClickable(true);
 
                     // Send back the full game state to sync
                     sendFullGameState();
@@ -262,7 +298,7 @@ export function initializePeerAsHost(stopPreviousGameCallback) {
     state.setIAmPlayer1InRemote(true);
     state.setGamePaired(false);
     state.setCurrentHostPeerId(null); 
-    state.setMyPlayerIdInRemoteGame(0); 
+    state.setMyPlayerIdInRemoteGame(0); // HOST is Player 0
 
     ui.updateGameModeUI();
     ui.updateMessageArea("Estableciendo conexión como Host..."); 
@@ -276,12 +312,12 @@ export function initializePeerAsJoiner(rawHostIdFromUrlOrPrompt, stopPreviousGam
     state.setPvpRemoteActive(true);
     state.setIAmPlayer1InRemote(false);
     state.setGamePaired(false);
-    state.setMyPlayerIdInRemoteGame(1); 
+    state.setMyPlayerIdInRemoteGame(1); // JOINER is Player 1
 
     ui.updateGameModeUI();
     ui.hideModalMessage();
 
-    // FIXED: Use the raw host ID directly (no prefix manipulation needed)
+    // Use the raw host ID directly (no prefix manipulation needed)
     const hostIdToConnect = rawHostIdFromUrlOrPrompt;
 
     if (!hostIdToConnect?.trim()) {
