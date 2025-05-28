@@ -192,7 +192,7 @@ export function generatePlayerSetupFields(count) {
 
         const iconLabel = document.createElement('label');
         iconLabel.htmlFor = `player-icon-${i}`;
-        iconLabel.textContent = `Ícono:`;
+        iconLabel.textContent = `Icono:`;
         const iconSelect = document.createElement('select');
         iconSelect.id = `player-icon-${i}`;
         state.AVAILABLE_ICONS.forEach(icon => {
