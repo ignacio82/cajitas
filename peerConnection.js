@@ -1,4 +1,4 @@
-// peerConnection.js
+// peerConnection.js - MODIFIED for case-insensitive color check
 
 import * as state from './state.js';
 import * as ui from './ui.js';
@@ -12,13 +12,9 @@ const peerJsCallbacks = {
         state.setMyPeerId(id);
 
         if (state.pvpRemoteActive && state.iAmPlayer1InRemote) {
-            // Store the RAW peer ID for connection purposes
             state.setCurrentHostPeerId(id);
-
-            // Create display ID with prefix for UI/QR
             const gameIdForDisplay = `${state.CAJITAS_PEER_ID_PREFIX}${id}`;
-            const gameLink = `${CAJITAS_BASE_URL}/?room=${id}`; // Use RAW ID in URL
-
+            const gameLink = `${CAJITAS_BASE_URL}/?room=${id}`;
             ui.updateMessageArea(`Compartí este enlace o ID: ${gameIdForDisplay}`);
             console.log("[PeerConnection] Game link for QR:", gameLink);
             ui.displayQRCode(gameLink, gameIdForDisplay);
@@ -26,7 +22,6 @@ const peerJsCallbacks = {
         } else if (state.pvpRemoteActive && !state.iAmPlayer1InRemote && state.currentHostPeerId) {
             if (window.peerJsMultiplayer?.connect) {
                 console.log(`[PeerJS] Joiner (my ID ${id}) connecting to host: ${state.currentHostPeerId}`);
-                // Use the RAW peer ID for actual connection
                 window.peerJsMultiplayer.connect(state.currentHostPeerId);
             } else {
                 console.error(`[PeerJS] Host ID not set for joiner or connect not available.`);
@@ -52,41 +47,35 @@ const peerJsCallbacks = {
 
         if (window.peerJsMultiplayer?.send) {
             if (state.iAmPlayer1InRemote) {
-                // HOST: Send initial game setup with HOST as Player 0
                 const hostPlayerData = {
-                    id: 0, // HOST is always Player 0
+                    id: 0,
                     name: state.playersData[0]?.name || 'Host',
                     icon: state.playersData[0]?.icon || state.AVAILABLE_ICONS[0],
                     color: state.playersData[0]?.color || state.DEFAULT_PLAYER_COLORS[0],
                     score: 0
                 };
-
                 console.log("[PeerConnection] HOST sending game_init_data as Player 0:", hostPlayerData);
-
                 window.peerJsMultiplayer.send({
                     type: 'game_init_data',
                     settings: {
                         rows: state.numRows,
                         cols: state.numCols,
                         numPlayers: state.numPlayers,
-                        players: [hostPlayerData, null] // Player 1 slot will be filled by joiner
+                        players: [hostPlayerData, null]
                     },
                     hostPlayer: hostPlayerData,
                     initialTurnCounter: state.turnCounter
                 });
                 ui.updateMessageArea("¡Conectado! Esperando al Jugador 2...");
             } else {
-                // JOINER: Send their info as Player 1
                 const joinerPlayerData = {
-                    id: 1, // JOINER is always Player 1
+                    id: 1,
                     name: state.playersData[1]?.name || 'Jugador 2',
                     icon: state.playersData[1]?.icon || state.AVAILABLE_ICONS[1],
                     color: state.playersData[1]?.color || state.DEFAULT_PLAYER_COLORS[1],
                     score: 0
                 };
-
                 console.log("[PeerConnection] JOINER sending player_join_info as Player 1:", joinerPlayerData);
-
                 window.peerJsMultiplayer.send({
                     type: 'player_join_info',
                     player: joinerPlayerData
@@ -108,12 +97,8 @@ const peerJsCallbacks = {
             case 'game_init_data':
                 if (!state.iAmPlayer1InRemote) {
                     console.log("[PeerJS] JOINER received game_init_data from Host", data);
-
-                    // Set up game dimensions
                     state.setGameDimensions(data.settings.rows, data.settings.cols);
                     state.setNumPlayers(data.settings.numPlayers);
-
-                    // Get host data (Player 0) and my joiner data (Player 1)
                     const hostData = data.hostPlayer;
                     const myJoinerData = {
                         id: 1,
@@ -122,23 +107,18 @@ const peerJsCallbacks = {
                         color: state.playersData[1]?.color || state.DEFAULT_PLAYER_COLORS[1],
                         score: 0
                     };
-
                     const remoteSessionPlayers = [
-                        { ...hostData, id: 0, score: 0 },     // Host is Player 0
-                        { ...myJoinerData, id: 1, score: 0 }  // Joiner is Player 1
+                        { ...hostData, id: 0, score: 0 },
+                        { ...myJoinerData, id: 1, score: 0 }
                     ];
-
                     console.log("[PeerConnection] JOINER setting up players:", remoteSessionPlayers);
-
                     state.setPlayersData(remoteSessionPlayers);
                     state.setRemotePlayersData([...remoteSessionPlayers]);
-                    state.setMyPlayerIdInRemoteGame(1); // Joiner is Player 1
-
+                    state.setMyPlayerIdInRemoteGame(1);
                     state.setTurnCounter(data.initialTurnCounter || 0);
                     state.setCurrentPlayerIndex(0);
                     state.setGameActive(true);
                     state.setIsMyTurnInRemote(false);
-
                     gameLogic.initializeGame(true);
                     ui.updateMessageArea("Esperando a que empiece el host...");
                     ui.setBoardClickable(false);
@@ -192,24 +172,42 @@ const peerJsCallbacks = {
                         detailsChanged = true;
                     }
 
-                    if (currentJoinerColor === hostData.color) {
-                        const hostColorIndex = state.DEFAULT_PLAYER_COLORS.indexOf(hostData.color);
-                        let newColorIndex = hostColorIndex;
-                         if (state.DEFAULT_PLAYER_COLORS.length > 1) {
+                    // MODIFIED: Case-insensitive color comparison
+                    if (currentJoinerColor.toLowerCase() === hostData.color.toLowerCase()) {
+                        const hostColorNormalized = hostData.color.toLowerCase();
+                        // Find index of host color in a normalized list of available colors
+                        const hostColorIndex = state.DEFAULT_PLAYER_COLORS.findIndex(c => c.toLowerCase() === hostColorNormalized);
+                        
+                        let newColorIndex = hostColorIndex; // Start assuming it might be the same if only one color
+                        if (state.DEFAULT_PLAYER_COLORS.length > 1) {
+                            let attempts = 0;
                             do {
                                 newColorIndex = (newColorIndex + 1) % state.DEFAULT_PLAYER_COLORS.length;
-                            } while (newColorIndex === hostColorIndex);
-                            currentJoinerColor = state.DEFAULT_PLAYER_COLORS[newColorIndex];
-                        } else if (state.DEFAULT_PLAYER_COLORS.length === 1 && state.DEFAULT_PLAYER_COLORS[0] !== hostData.color) {
+                                attempts++;
+                            // Ensure new index is different from host's index and we don't loop infinitely if all colors somehow match after normalization (highly unlikely with distinct DEFAULT_PLAYER_COLORS)
+                            } while (newColorIndex === hostColorIndex && attempts < state.DEFAULT_PLAYER_COLORS.length);
+                            
+                            if (newColorIndex !== hostColorIndex) { // If a different color was found
+                                currentJoinerColor = state.DEFAULT_PLAYER_COLORS[newColorIndex];
+                            } else { // All available colors are essentially the same as host's (after normalization), or only one color available
+                                currentJoinerColor = '#808080'; // Fallback grey, different from most defaults
+                                if (currentJoinerColor.toLowerCase() === hostColorNormalized) { // If host is also grey
+                                    currentJoinerColor = '#A9A9A9'; // Darker grey
+                                }
+                            }
+                        } else if (state.DEFAULT_PLAYER_COLORS.length === 1 && state.DEFAULT_PLAYER_COLORS[0].toLowerCase() !== hostColorNormalized) {
+                            // Only one default color available, and it's different from host
                             currentJoinerColor = state.DEFAULT_PLAYER_COLORS[0];
                         } else {
-                            currentJoinerColor = '#808080';
+                            // Only one default color and it IS the same as host, or no default colors
+                            currentJoinerColor = '#808080'; 
                         }
                         detailsChanged = true;
                     }
 
+
                     if (detailsChanged) {
-                        console.log("[PeerConnection] Joiner details clashed with host.");
+                        console.log("[PeerConnection] Joiner details clashed with host or were updated.");
                         console.log(`[PeerConnection] Host Details: Name=${hostData.name}, Icon=${hostData.icon}, Color=${hostData.color}`);
                         console.log(`[PeerConnection] Original Joiner Details: Name=${originalJoinerName}, Icon=${originalJoinerIcon}, Color=${originalJoinerColor}`);
                         console.log(`[PeerConnection] Corrected Joiner Details: Name=${currentJoinerName}, Icon=${currentJoinerIcon}, Color=${currentJoinerColor}`);
@@ -251,8 +249,8 @@ const peerJsCallbacks = {
                 break;
 
             case 'full_state_update':
-                if (data.turnCounter <= state.turnCounter && state.turnCounter !== 0 && data.turnCounter !== 0) { // check turnCounter is not 0 for initial sync
-                    console.warn(`[PeerJS] Ignoring stale/duplicate full_state_update. RX TC: ${data.turnCounter}, Local TC: ${state.turnCounter}. Data:`, data);
+                if (data.turnCounter < state.turnCounter && state.turnCounter !== 0 && data.turnCounter !== 0) {
+                    console.warn(`[PeerJS] Ignoring stale full_state_update. RX TC: ${data.turnCounter}, Local TC: ${state.turnCounter}. Data:`, data);
                     return;
                 }
                 console.log(`[PeerJS] Received full_state_update. TC: ${data.turnCounter}. PlayersData (JSON):`, JSON.stringify(data.gameState.playersData));
@@ -312,33 +310,7 @@ const peerJsCallbacks = {
 
 export function ensurePeerInitialized(customCallbacks = {}) {
     if (window.peerJsMultiplayer?.init) {
-        const effectiveCallbacks = {
-            ...peerJsCallbacks,
-            onPeerOpen: (id) => {
-                peerJsCallbacks.onPeerOpen(id);
-                customCallbacks.onPeerOpen?.(id);
-            },
-            onError: (err) => {
-                peerJsCallbacks.onError(err);
-                customCallbacks.onError?.(err);
-            },
-            onNewConnection: (conn) => {
-                peerJsCallbacks.onNewConnection(conn);
-                customCallbacks.onNewConnection?.(conn);
-            },
-            onConnectionOpen: () => {
-                peerJsCallbacks.onConnectionOpen();
-                customCallbacks.onConnectionOpen?.();
-            },
-            onDataReceived: (data) => {
-                peerJsCallbacks.onDataReceived(data);
-                customCallbacks.onDataReceived?.(data);
-            },
-            onConnectionClose: () => {
-                peerJsCallbacks.onConnectionClose();
-                customCallbacks.onConnectionClose?.();
-            }
-        };
+        const effectiveCallbacks = { ...peerJsCallbacks, ...customCallbacks };
         window.peerJsMultiplayer.init(null, effectiveCallbacks);
     } else {
         console.error("[PeerJS] peerJsMultiplayer.init not found.");
@@ -353,11 +325,9 @@ export function initializePeerAsHost(stopPreviousGameCallback) {
     state.setGamePaired(false);
     state.setCurrentHostPeerId(null);
     state.setMyPlayerIdInRemoteGame(0);
-
     ui.updateGameModeUI();
     ui.updateMessageArea("Estableciendo conexión como Host...");
     ui.hideModalMessage();
-
     ensurePeerInitialized();
 }
 
@@ -367,12 +337,9 @@ export function initializePeerAsJoiner(rawHostIdFromUrlOrPrompt, stopPreviousGam
     state.setIAmPlayer1InRemote(false);
     state.setGamePaired(false);
     state.setMyPlayerIdInRemoteGame(1);
-
     ui.updateGameModeUI();
     ui.hideModalMessage();
-
     const hostIdToConnect = rawHostIdFromUrlOrPrompt;
-
     if (!hostIdToConnect?.trim()) {
         ui.showModalMessage("ID del Host inválido.");
         ui.updateMessageArea("Cancelado.");
@@ -380,11 +347,9 @@ export function initializePeerAsJoiner(rawHostIdFromUrlOrPrompt, stopPreviousGam
         ui.updateGameModeUI();
         return;
     }
-
     state.setCurrentHostPeerId(hostIdToConnect.trim());
     ui.updateMessageArea(`Intentando conectar a ${hostIdToConnect}...`);
     ui.showModalMessage(`Conectando a ${hostIdToConnect}...`);
-
     ensurePeerInitialized();
 }
 
@@ -394,7 +359,6 @@ export function connectToDiscoveredPeer(opponentRawPeerId) {
         peerJsCallbacks.onError?.({type: 'connect_error', message: 'ID de par remoto nulo.'});
         return;
     }
-
     if (window.peerJsMultiplayer?.connect) {
         console.log(`[PeerJS] Attempting to connect to discovered peer: ${opponentRawPeerId}`);
         state.setPvpRemoteActive(true);
@@ -425,7 +389,6 @@ export function closePeerSession() {
 
 export function sendFullGameState() {
     if (!state.iAmPlayer1InRemote || !state.gamePaired) return;
-
     const gameStatePayload = {
         numRows: state.numRows,
         numCols: state.numCols,
