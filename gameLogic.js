@@ -1,533 +1,400 @@
-// gameLogic.js - FIXED VERSION - Proper totalPossibleBoxes calculation
+// peerConnection.js - FIXED VERSION with proper player assignment
 
 import * as state from './state.js';
 import * as ui from './ui.js';
-import * as peerConnection from './peerConnection.js';
-// import * as sound from './sound.js'; // Import if game logic directly triggers sounds
+import * as gameLogic from './gameLogic.js';
 
-/**
- * Initializes the game. Sets up the board, players, and initial state.
- * @param {boolean} isRemoteGame - True if this is a network game being initialized.
- */
-export function initializeGame(isRemoteGame = false) {
-    console.log("Initializing game. Remote:", isRemoteGame);
-    if (!isRemoteGame) { // For local games, read from UI inputs
-        state.setGameDimensions(parseInt(ui.rowsInput.value), parseInt(ui.colsInput.value));
-        state.setNumPlayers(parseInt(ui.numPlayersInput.value));
+const CAJITAS_BASE_URL = "https://cajitas.martinez.fyi";
 
-        const players = [];
-        for (let i = 0; i < state.numPlayers; i++) {
-            const name = document.getElementById(`player-name-${i}`).value || `Jugador/a ${i + 1}`;
-            const icon = document.getElementById(`player-icon-${i}`).value;
-            const color = document.getElementById(`player-color-${i}`).value;
-            players.push({ id: i, name, icon, color, score: 0 });
-        }
-        state.setPlayersData(players);
-    } else {
-        // For remote games, playersData should have been set by peerConnection.js
-        // based on exchanged info. We just ensure scores are 0.
-        state.playersData.forEach(p => p.score = 0);
-        state.setRemotePlayersData([...state.playersData]); // Sync remotePlayersData if it's used
-        
-        // CRITICAL FIX: Ensure game dimensions are properly set for remote games
-        // This should have been set by peerConnection.js, but let's verify
-        console.log(`[GameLogic] Remote game dimensions: ${state.numRows}x${state.numCols}, totalPossible: ${state.totalPossibleBoxes}`);
-        
-        // If totalPossibleBoxes is 0, recalculate it
-        if (state.totalPossibleBoxes === 0) {
-            console.log(`[GameLogic] FIXING: totalPossibleBoxes was 0, recalculating...`);
-            state.setGameDimensions(state.numRows, state.numCols);
-            console.log(`[GameLogic] FIXED: totalPossibleBoxes now: ${state.totalPossibleBoxes}`);
-        }
-    }
+const peerJsCallbacks = {
+    onPeerOpen: (id) => {
+        console.log(`[PeerJS] My Peer ID is: ${id}. Am I P1 (host)? ${state.iAmPlayer1InRemote}`);
+        state.setMyPeerId(id);
 
-    state.resetGameFlowState(); // Resets board, scores, turn counter etc.
-    state.setGameActive(true);
-    state.setCurrentPlayerIndex(0); // Player 0 starts by default
-
-    ui.drawBoardSVG(); // Draws dots and line slots
-    addSlotListeners(); // Add click listeners to the newly drawn slots
-
-    ui.updateScoresDisplay();
-    ui.updatePlayerTurnDisplay();
-    ui.updateMessageArea('');
-    ui.showGameScreen();
-    ui.setBoardClickable(state.pvpRemoteActive ? state.isMyTurnInRemote : true);
-    if (ui.undoBtn) ui.undoBtn.disabled = true;
-
-    // Final verification
-    console.log(`[GameLogic] Game initialized. Dimensions: ${state.numRows}x${state.numCols}, totalPossible: ${state.totalPossibleBoxes}, Current player: ${state.currentPlayerIndex}`);
-
-    // if (state.soundEnabled && sound.gameStartSound) sound.playSound(sound.gameStartSound);
-}
-
-/**
- * Resets the game to the setup screen or restarts with current settings.
- * @param {boolean} backToSetup - If true, goes back to the setup screen.
- */
-export function resetGame(backToSetup = true) {
-    console.log("Resetting game. Back to setup:", backToSetup);
-    state.setGameActive(false);
-    ui.clearBoardForNewGame();
-
-    if (state.pvpRemoteActive && state.gamePaired && !backToSetup) {
-        // If it's a paired remote game and not going fully back to setup (e.g. restart request)
-        peerConnection.sendPeerData({ type: 'restart_request', playerName: state.playersData[state.myPlayerIdInRemoteGame]?.name });
-        ui.showModalMessage("Solicitud de reinicio enviada..."); // Translated
-        // Game will fully re-initialize if opponent accepts
-    } else if (backToSetup) {
-        ui.showSetupScreen();
-        state.resetNetworkState(); // Full reset if going to setup
-        ui.updateGameModeUI();
-    } else { // Local game restart with same settings
-        initializeGame();
-    }
-    // if (state.soundEnabled && sound.resetSound) sound.playSound(sound.resetSound);
-}
-
-/**
- * Adds click listeners to all line slots on the board.
- */
-function addSlotListeners() {
-    const slots = ui.gameBoardSVG.querySelectorAll('.line-slot');
-    slots.forEach(slot => {
-        slot.addEventListener('click', handleLineClickWrapper);
-    });
-}
-
-/**
- * Wrapper for handling line clicks to manage turn logic for local and remote games.
- * @param {Event} event - The click event.
- */
-function handleLineClickWrapper(event) {
-    if (!state.gameActive) return;
-    if (state.pvpRemoteActive && !state.isMyTurnInRemote) {
-        ui.updateMessageArea("¡Ey! No es tu turno.", true); // Translated
-        return;
-    }
-
-    const targetSlot = event.currentTarget;
-    const type = targetSlot.dataset.type;
-    const r = parseInt(targetSlot.dataset.r);
-    const c = parseInt(targetSlot.dataset.c);
-
-    // Check if line is already drawn (though listener should be removed)
-    const lineDrawn = (type === 'h' && state.horizontalLines[r]?.[c]) || (type === 'v' && state.verticalLines[r]?.[c]);
-    if (lineDrawn) {
-        return; // Should not happen if listener is removed correctly
-    }
-
-    processMove(type, r, c, state.currentPlayerIndex);
-
-    if (state.pvpRemoteActive) {
-        state.incrementTurnCounter();
-        const moveData = {
-            type: 'game_move',
-            move: { type, r, c, playerIndex: state.currentPlayerIndex },
-            turnCounter: state.turnCounter
-        };
-        peerConnection.sendPeerData(moveData);
-        // Turn switching for remote game will happen upon receiving data or after local processing + state check
-    }
-}
-
-/**
- * Processes a move: draws the line, checks for boxes, updates scores, and manages turns.
- * @param {string} type - 'h' for horizontal, 'v' for vertical.
- * @param {number} r - Row index of the line.
- * @param {number} c - Column index of the line.
- * @param {number} playerIndex - The index of the player making the move.
- * @param {boolean} isRemoteSync - True if this move is being applied from a remote message.
- */
-export function processMove(type, r, c, playerIndex, isRemoteSync = false) {
-    if (!state.gameActive) return;
-
-    console.log(`[GameLogic] processMove: ${type} at (${r},${c}) by player ${playerIndex}, remote: ${isRemoteSync}`);
-
-    // Validate playerIndex if it's coming from remote
-    if (isRemoteSync && playerIndex !== state.currentPlayerIndex) {
-        console.warn(`Remote move for player ${playerIndex}, but current local player is ${state.currentPlayerIndex}. Syncing current player.`);
-        state.setCurrentPlayerIndex(playerIndex);
-    }
-
-    // Mark the line in the state
-    if (type === 'h') {
-        if(state.horizontalLines[r]?.[c]) return; // Already drawn
-        state.horizontalLines[r][c] = 1;
-    } else {
-        if(state.verticalLines[r]?.[c]) return; // Already drawn
-        state.verticalLines[r][c] = 1;
-    }
-
-    // Draw the line visually
-    const lineElement = ui.drawVisualLineOnBoard(type, r, c, playerIndex);
-    // if (state.soundEnabled && sound.lineSound) sound.playSound(sound.lineSound, "C4", "32n");
-
-    // Disable the clicked slot
-    const slotId = `slot-${type}-${r}-${c}`;
-    const slotElement = document.getElementById(slotId);
-    if (slotElement) {
-        slotElement.style.fill = 'transparent'; // Make it invisible
-        slotElement.removeEventListener('click', handleLineClickWrapper);
-    }
-
-    // Store for potential local undo (if not a remote sync and game rules allow)
-    if (!isRemoteSync && !state.pvpRemoteActive) {
-        const boxesPotentiallyCompleted = getPotentiallyAffectedBoxes(type, r, c);
-        const previousBoxStates = boxesPotentiallyCompleted.map(box => ({
-            r: box.r, c: box.c, player: state.boxes[box.r][box.c]
-        }));
-
-        state.setLastMoveForUndo({
-            type, r, c, playerIndex, lineElement, slotElement,
-            boxesCompletedBeforeThisMove: previousBoxStates,
-            scoreBeforeThisMove: state.playersData[playerIndex].score
-        });
-        if (ui.undoBtn) ui.undoBtn.disabled = false;
-    }
-
-    const boxesCompletedCount = checkForCompletedBoxes(type, r, c, playerIndex);
-    console.log(`[GameLogic] Boxes completed: ${boxesCompletedCount}`);
-
-    if (boxesCompletedCount > 0) {
-        state.updatePlayerScore(playerIndex, boxesCompletedCount);
-        state.incrementFilledBoxesCount(boxesCompletedCount);
-        ui.updateScoresDisplay();
-        // Player continues if they completed a box
-        ui.updateMessageArea(`¡${state.playersData[playerIndex].name} hizo ${boxesCompletedCount} cajita(s)! ¡Seguís vos!`);
-        // if (state.soundEnabled && sound.boxSound) { /* play multiple times */ }
-
-        // For local play, completing a box means no "simple" undo for the line that completed it.
-        // The turn continues for the same player.
-        if (!state.pvpRemoteActive) {
-            state.setLastMoveForUndo(null); // Cannot undo a scoring move's line simply
-            if (ui.undoBtn) ui.undoBtn.disabled = true;
-        }
-    } else {
-        // No box completed, switch player
-        if (!isRemoteSync || (isRemoteSync && state.isMyTurnInRemote)) { // Only switch if it was our turn or local game
-            endTurn();
-        }
-    }
-
-    if (state.pvpRemoteActive && !isRemoteSync) {
-        // If it was my turn and I made a move, it's no longer my turn (unless I scored)
-        if (boxesCompletedCount === 0) { // I didn't score, so it's other player's turn
-             state.setIsMyTurnInRemote(false);
-        }
-        // if I did score, it's still my turn (isMyTurnInRemote remains true)
-        ui.setBoardClickable(state.isMyTurnInRemote);
-        ui.updatePlayerTurnDisplay();
-    }
-
-    // FIXED: Check game over AFTER all processing is complete
-    console.log(`[GameLogic] Checking game over: filledBoxes=${state.filledBoxesCount}, totalPossible=${state.totalPossibleBoxes}`);
-    if (checkGameOver()) {
-        console.log(`[GameLogic] Game over detected!`);
-        announceWinner();
-        state.setGameActive(false);
-        if (ui.undoBtn) ui.undoBtn.disabled = true;
-        state.setLastMoveForUndo(null);
-    } else {
-        console.log(`[GameLogic] Game continues...`);
-    }
-}
-
-function getPotentiallyAffectedBoxes(lineType, lineR, lineC) {
-    const affected = [];
-    if (lineType === 'h') {
-        // Box below the horizontal line
-        if (lineR < state.numRows - 1) affected.push({ r: lineR, c: lineC });
-        // Box above the horizontal line
-        if (lineR > 0) affected.push({ r: lineR - 1, c: lineC });
-    } else { // Vertical line
-        // Box to the right of the vertical line
-        if (lineC < state.numCols - 1) affected.push({ r: lineR, c: lineC });
-        // Box to the left of the vertical line
-        if (lineC > 0) affected.push({ r: lineR, c: lineC - 1 });
-    }
-    return affected.filter(b => b.r >= 0 && b.r < state.numRows -1 && b.c >=0 && b.c < state.numCols -1);
-}
-
-/**
- * Checks for completed boxes after a line is drawn.
- * @param {string} lineType - 'h' or 'v'.
- * @param {number} lineR - Row of the drawn line.
- * @param {number} lineC - Column of the drawn line.
- * @param {number} playerIndex - Player who drew the line.
- * @returns {number} - The number of boxes completed by this move.
- */
-function checkForCompletedBoxes(lineType, lineR, lineC, playerIndex) {
-    let boxesMadeThisTurn = 0;
-
-    // Check box "below" a horizontal line or "to the right" of a vertical line
-    if (lineType === 'h' && lineR < state.numRows - 1) { // Box below lineR, lineC
-        if (state.boxes[lineR][lineC] === -1 &&
-            state.horizontalLines[lineR + 1]?.[lineC] &&
-            state.verticalLines[lineR]?.[lineC] &&
-            state.verticalLines[lineR]?.[lineC + 1]) {
-            ui.fillBoxOnBoard(lineR, lineC, playerIndex);
-            state.boxes[lineR][lineC] = playerIndex;
-            boxesMadeThisTurn++;
-            console.log(`[GameLogic] Box completed at (${lineR}, ${lineC}) by player ${playerIndex}`);
-        }
-    } else if (lineType === 'v' && lineC < state.numCols - 1) { // Box to the right of lineR, lineC
-        if (state.boxes[lineR][lineC] === -1 &&
-            state.verticalLines[lineR]?.[lineC + 1] &&
-            state.horizontalLines[lineR]?.[lineC] &&
-            state.horizontalLines[lineR + 1]?.[lineC]) {
-            ui.fillBoxOnBoard(lineR, lineC, playerIndex);
-            state.boxes[lineR][lineC] = playerIndex;
-            boxesMadeThisTurn++;
-            console.log(`[GameLogic] Box completed at (${lineR}, ${lineC}) by player ${playerIndex}`);
-        }
-    }
-
-    // Check box "above" a horizontal line or "to the left" of a vertical line
-    if (lineType === 'h' && lineR > 0) { // Box above lineR, lineC (means it's box [lineR-1][lineC])
-        if (state.boxes[lineR - 1][lineC] === -1 &&
-            state.horizontalLines[lineR - 1]?.[lineC] &&
-            state.verticalLines[lineR - 1]?.[lineC] &&
-            state.verticalLines[lineR - 1]?.[lineC + 1]) {
-            ui.fillBoxOnBoard(lineR - 1, lineC, playerIndex);
-            state.boxes[lineR - 1][lineC] = playerIndex;
-            boxesMadeThisTurn++;
-            console.log(`[GameLogic] Box completed at (${lineR - 1}, ${lineC}) by player ${playerIndex}`);
-        }
-    } else if (lineType === 'v' && lineC > 0) { // Box to the left of lineR, lineC (means it's box [lineR][lineC-1])
-        if (state.boxes[lineR][lineC - 1] === -1 &&
-            state.verticalLines[lineR]?.[lineC - 1] &&
-            state.horizontalLines[lineR]?.[lineC - 1] &&
-            state.horizontalLines[lineR + 1]?.[lineC - 1]) {
-            ui.fillBoxOnBoard(lineR, lineC - 1, playerIndex);
-            state.boxes[lineR][lineC - 1] = playerIndex;
-            boxesMadeThisTurn++;
-            console.log(`[GameLogic] Box completed at (${lineR}, ${lineC - 1}) by player ${playerIndex}`);
-        }
-    }
-    return boxesMadeThisTurn;
-}
-
-function endTurn() {
-    if (!state.gameActive) return;
-
-    state.setCurrentPlayerIndex((state.currentPlayerIndex + 1) % state.numPlayers);
-    ui.updatePlayerTurnDisplay();
-
-    if (!state.pvpRemoteActive) { // Local game
-        state.setLastMoveForUndo(null);
-        if (ui.undoBtn) ui.undoBtn.disabled = true;
-        ui.updateMessageArea(''); // Clear any previous "continue your turn" message
-    } else { // Remote game
-        // isMyTurnInRemote is managed by processMove and applyRemoteMove
-        // Turn display already updated
-    }
-     ui.setBoardClickable(state.pvpRemoteActive ? state.isMyTurnInRemote : true);
-}
-
-/**
- * Handles the undo action for local games.
- */
-export function handleUndo() {
-    if (!state.gameActive || state.pvpRemoteActive || !state.lastMoveForUndo) {
-        if (ui.undoBtn) ui.undoBtn.disabled = true;
-        return;
-    }
-    // if (state.soundEnabled && sound.undoSound) sound.playSound(sound.undoSound);
-
-    const { type, r, c, playerIndex, lineElement, slotElement, boxesCompletedBeforeThisMove, scoreBeforeThisMove } = state.lastMoveForUndo;
-
-    // Revert line state
-    if (type === 'h') state.horizontalLines[r][c] = 0;
-    else state.verticalLines[r][c] = 0;
-
-    // Remove visual line
-    if (lineElement && lineElement.parentNode) {
-        lineElement.remove();
-    }
-    // Re-enable slot and re-add listener
-    if (slotElement) {
-        slotElement.style.fill = 'rgba(0,0,0,0.03)';
-        slotElement.addEventListener('click', handleLineClickWrapper);
-    }
-
-    // Revert any boxes that were completed by this specific move
-    if (boxesCompletedBeforeThisMove) {
-        boxesCompletedBeforeThisMove.forEach(prevBoxState => {
-            // If a box was -1 and is now owned by current player, revert it
-            if (prevBoxState.player === -1 && state.boxes[prevBoxState.r][prevBoxState.c] === playerIndex) {
-                state.boxes[prevBoxState.r][prevBoxState.c] = -1;
-                ui.removeFilledBoxFromBoard(prevBoxState.r, prevBoxState.c);
-                state.incrementFilledBoxesCount(-1); // Decrement
+        if (state.pvpRemoteActive && state.iAmPlayer1InRemote) {
+            // Store the RAW peer ID for connection purposes
+            state.setCurrentHostPeerId(id);
+            
+            // Create display ID with prefix for UI/QR
+            const gameIdForDisplay = `${state.CAJITAS_PEER_ID_PREFIX}${id}`;
+            const gameLink = `${CAJITAS_BASE_URL}/?room=${id}`; // Use RAW ID in URL
+            
+            ui.updateMessageArea(`Compartí este enlace o ID: ${gameIdForDisplay}`);
+            console.log("[PeerConnection] Game link for QR:", gameLink);
+            ui.displayQRCode(gameLink, gameIdForDisplay);
+            
+        } else if (state.pvpRemoteActive && !state.iAmPlayer1InRemote && state.currentHostPeerId) {
+            if (window.peerJsMultiplayer?.connect) {
+                console.log(`[PeerJS] Joiner (my ID ${id}) connecting to host: ${state.currentHostPeerId}`);
+                // Use the RAW peer ID for actual connection
+                window.peerJsMultiplayer.connect(state.currentHostPeerId);
+            } else {
+                console.error(`[PeerJS] Host ID not set for joiner or connect not available.`);
+                ui.showModalMessage("Error: No se pudo conectar al host. El ID del host no está configurado.");
+                state.resetNetworkState();
+                ui.updateGameModeUI();
             }
-        });
-    }
-    // Revert score
-    state.playersData[playerIndex].score = scoreBeforeThisMove;
-
-    ui.updateScoresDisplay();
-    ui.updateMessageArea(`${state.playersData[playerIndex].name}, ¡hacé tu jugada de nuevo!`); // Translated
-    state.setLastMoveForUndo(null);
-    if (ui.undoBtn) ui.undoBtn.disabled = true;
-
-    // The turn does not switch back; the current player gets to replay.
-    state.setCurrentPlayerIndex(playerIndex); // Ensure it's still this player's logical turn
-    ui.updatePlayerTurnDisplay();
-    ui.setBoardClickable(true);
-}
-
-// FIXED: More robust game over check
-function checkGameOver() {
-    const gameOver = state.filledBoxesCount >= state.totalPossibleBoxes;
-    console.log(`[GameLogic] checkGameOver: filledBoxes=${state.filledBoxesCount}, totalPossible=${state.totalPossibleBoxes}, gameOver=${gameOver}`);
-    return gameOver;
-}
-
-function announceWinner() {
-    let maxScore = -1;
-    let winners = [];
-    state.playersData.forEach((player) => {
-        if (player.score > maxScore) {
-            maxScore = player.score;
-            winners = [player];
-        } else if (player.score === maxScore) {
-            winners.push(player);
         }
-    });
+    },
 
-    let winnerMessage;
-    if (winners.length === 1) {
-        winnerMessage = `¡${winners[0].name} ${winners[0].icon} ganó con ${maxScore} cajitas brillantes! ¡Bravo! 🥳`; // Translated
-        // if (state.soundEnabled && sound.winSound) { /* play win notes */ }
-    } else {
-        const winnerNames = winners.map(p => `${p.name} ${p.icon}`).join(' y ');
-        winnerMessage = `¡Hay un súper empate entre ${winnerNames} con ${maxScore} cajitas cada uno! ¡Muy bien jugado! 🎉`; // Translated
-        // if (state.soundEnabled && sound.tieSound) { /* play tie notes */ }
-    }
-    ui.showModalMessage(`¡Juego Terminado! ${winnerMessage}`); // Translated
-    ui.updateMessageArea('');
-    if (ui.mainTitle) ui.mainTitle.textContent = "¿Jugar de Nuevo?"; // Translated
-}
+    onNewConnection: (conn) => {
+        console.log(`[PeerJS] Incoming connection from ${conn.peer}.`);
+        ui.hideQRCode();
+        ui.showModalMessage("Jugador/a conectándose...");
+        ui.updateMessageArea("Jugador/a conectándose...");
+    },
 
-// ---------- NETWORK GAME LOGIC HANDLERS ----------
+    onConnectionOpen: () => {
+        console.log(`[PeerJS] Data connection opened.`);
+        state.setGamePaired(true);
+        ui.hideModalMessage();
+        ui.hideQRCode();
 
-/**
- * Applies a move received from a remote player.
- * @param {object} moveData - The move data { type, r, c, playerIndex }.
- */
-export function applyRemoteMove(moveData) {
-    if (!state.pvpRemoteActive || !state.gameActive) return;
-    console.log("Applying remote move:", moveData);
+        if (window.peerJsMultiplayer?.send) {
+            if (state.iAmPlayer1InRemote) {
+                // HOST: Send initial game setup with HOST as Player 0
+                const hostPlayerData = {
+                    id: 0, // HOST is always Player 0
+                    name: state.playersData[0]?.name || 'Host',
+                    icon: state.playersData[0]?.icon || state.AVAILABLE_ICONS[0],
+                    color: state.playersData[0]?.color || state.DEFAULT_PLAYER_COLORS[0],
+                    score: 0
+                };
+                
+                console.log("[PeerConnection] HOST sending game_init_data as Player 0:", hostPlayerData);
+                
+                window.peerJsMultiplayer.send({
+                    type: 'game_init_data',
+                    settings: {
+                        rows: state.numRows,
+                        cols: state.numCols,
+                        numPlayers: state.numPlayers,
+                        players: [hostPlayerData, null] // Player 1 slot will be filled by joiner
+                    },
+                    hostPlayer: hostPlayerData,
+                    initialTurnCounter: state.turnCounter
+                });
+                ui.updateMessageArea("¡Conectado! Esperando al Jugador 2...");
+            } else {
+                // JOINER: Send their info as Player 1
+                const joinerPlayerData = {
+                    id: 1, // JOINER is always Player 1
+                    name: state.playersData[1]?.name || 'Jugador 2',
+                    icon: state.playersData[1]?.icon || state.AVAILABLE_ICONS[1],
+                    color: state.playersData[1]?.color || state.DEFAULT_PLAYER_COLORS[1],
+                    score: 0
+                };
+                
+                console.log("[PeerConnection] JOINER sending player_join_info as Player 1:", joinerPlayerData);
+                
+                window.peerJsMultiplayer.send({
+                    type: 'player_join_info',
+                    player: joinerPlayerData
+                });
+                ui.updateMessageArea("¡Conectado! Iniciando partida...");
+            }
+        }
+    },
 
-    const { type, r, c, playerIndex } = moveData;
+    onDataReceived: (data) => {
+        console.log(`[PeerJS] RX RAW: Type: ${data.type}`, data);
 
-    // It's now this player's turn locally because a move was made by them remotely.
-    // However, processMove will handle the turn logic (who plays next).
-    // We first ensure the currentPlayerIndex is set to who made the move.
-    state.setCurrentPlayerIndex(playerIndex);
-    ui.updatePlayerTurnDisplay(); // Reflects who just made the move
+        if (!state.pvpRemoteActive && !['ping', 'game_init_data', 'player_join_info'].includes(data.type)) {
+            console.warn("[PeerJS] Ignoring data (not in PVP remote mode or not initial setup data).", data);
+            return;
+        }
 
-    processMove(type, r, c, playerIndex, true); // true indicates remote sync
+        switch (data.type) {
+            case 'game_init_data':
+                if (!state.iAmPlayer1InRemote) {
+                    console.log("[PeerJS] JOINER received game_init_data from Host", data);
+                    
+                    // Set up game dimensions
+                    state.setGameDimensions(data.settings.rows, data.settings.cols);
+                    state.setNumPlayers(data.settings.numPlayers);
+                    
+                    // Get host data (Player 0) and my joiner data (Player 1)
+                    const hostData = data.hostPlayer;
+                    const myJoinerData = {
+                        id: 1,
+                        name: state.playersData[1]?.name || 'Jugador 2',
+                        icon: state.playersData[1]?.icon || state.AVAILABLE_ICONS[1],
+                        color: state.playersData[1]?.color || state.DEFAULT_PLAYER_COLORS[1],
+                        score: 0
+                    };
 
-    // After processing the move, determine if it's now the local client's turn
-    state.setIsMyTurnInRemote(state.currentPlayerIndex === state.myPlayerIdInRemoteGame && state.gameActive);
-    ui.setBoardClickable(state.isMyTurnInRemote);
-    ui.updatePlayerTurnDisplay(); // Update again to reflect "Your turn" or "Waiting"
-}
+                    // CRITICAL: Set up players array with correct assignments
+                    const remoteSessionPlayers = [
+                        { ...hostData, id: 0, score: 0 },     // Host is Player 0
+                        { ...myJoinerData, id: 1, score: 0 }  // Joiner is Player 1
+                    ];
+                    
+                    console.log("[PeerConnection] JOINER setting up players:", remoteSessionPlayers);
+                    
+                    state.setPlayersData(remoteSessionPlayers);
+                    state.setRemotePlayersData([...remoteSessionPlayers]); 
+                    state.setMyPlayerIdInRemoteGame(1); // Joiner is Player 1
 
-/**
- * Applies a full game state received from a remote player (e.g., for syncing).
- * @param {object} remoteGameState - The complete game state.
- */
-export function applyFullState(remoteGameState) {
-    if (!state.pvpRemoteActive) return;
-    console.log("Applying full remote state:", remoteGameState);
+                    // Set up turn management
+                    state.setTurnCounter(data.initialTurnCounter || 0);
+                    state.setCurrentPlayerIndex(0); // Game always starts with Player 0 (host)
+                    state.setGameActive(true);
+                    state.setIsMyTurnInRemote(false); // Joiner waits for host to start
 
-    state.setGameDimensions(remoteGameState.numRows, remoteGameState.numCols);
-    state.setNumPlayers(remoteGameState.numPlayers);
-
-    // Important: Map remote player IDs to local player structure if necessary,
-    // for now, assume player order is consistent (0 for host, 1 for joiner in P2P)
-    state.setPlayersData(remoteGameState.playersData.map(p => ({...p}))); // Deep copy might be better
-    state.setRemotePlayersData([...remoteGameState.playersData]);
-
-    state.setHorizontalLines(remoteGameState.horizontalLines.map(row => [...row]));
-    state.setVerticalLines(remoteGameState.verticalLines.map(row => [...row]));
-    state.setBoxes(remoteGameState.boxes.map(row => [...row]));
-    state.setFilledBoxesCount(remoteGameState.filledBoxesCount);
-    state.setTurnCounter(remoteGameState.turnCounter);
-    state.setCurrentPlayerIndex(remoteGameState.currentPlayerIndex);
-    state.setGameActive(remoteGameState.gameActive);
-
-    // Redraw the entire board based on the new state
-    ui.clearBoardForNewGame(); // Clear existing visuals
-    ui.drawBoardSVG();       // Redraw slots and dots
-    addSlotListeners();      // Re-add listeners to new slots
-
-    // Redraw all lines
-    state.horizontalLines.forEach((row, r) => {
-        row.forEach((val, c) => {
-            if (val) {
-                const linePlayer = findLineOwner(r,c,'h'); // Placeholder
-                ui.drawVisualLineOnBoard('h', r, c, linePlayer !== -1 ? linePlayer : 0); // Default to P0 if unknown
-                const slotElement = document.getElementById(`slot-h-${r}-${c}`);
-                if(slotElement) {
-                     slotElement.style.fill = 'transparent';
-                     slotElement.removeEventListener('click', handleLineClickWrapper);
+                    // Initialize the actual game
+                    gameLogic.initializeGame(true); 
+                    ui.updateMessageArea("Esperando a que empiece el host...");
+                    ui.setBoardClickable(false); // Joiner can't click yet
                 }
-            }
-        });
-    });
-    state.verticalLines.forEach((row, r) => {
-        row.forEach((val, c) => {
-            if (val) {
-                const linePlayer = findLineOwner(r,c,'v'); // Placeholder
-                ui.drawVisualLineOnBoard('v', r, c, linePlayer !== -1 ? linePlayer : 0);
-                const slotElement = document.getElementById(`slot-v-${r}-${c}`);
-                 if(slotElement) {
-                     slotElement.style.fill = 'transparent';
-                     slotElement.removeEventListener('click', handleLineClickWrapper);
-                 }
-            }
-        });
-    });
+                break;
 
-    // Redraw all filled boxes
-    state.boxes.forEach((row, r) => {
-        row.forEach((playerIdx, c) => {
-            if (playerIdx !== -1) {
-                ui.fillBoxOnBoard(r, c, playerIdx);
+            case 'player_join_info': 
+                if (state.iAmPlayer1InRemote) {
+                    console.log("[PeerJS] HOST received player_join_info from Joiner", data);
+                    
+                    // Update Player 1 data with joiner's info
+                    const hostData = {
+                        id: 0,
+                        name: state.playersData[0]?.name || 'Host',
+                        icon: state.playersData[0]?.icon || state.AVAILABLE_ICONS[0],
+                        color: state.playersData[0]?.color || state.DEFAULT_PLAYER_COLORS[0],
+                        score: 0
+                    };
+                    
+                    const joinerData = { ...data.player, id: 1, score: 0 }; // Ensure ID is 1
+                    
+                    const finalPlayers = [hostData, joinerData];
+                    
+                    console.log("[PeerConnection] HOST setting up final players:", finalPlayers);
+                    
+                    state.setPlayersData(finalPlayers);
+                    state.setRemotePlayersData([...finalPlayers]);
+                    state.setMyPlayerIdInRemoteGame(0); // Host is Player 0
+                    
+                    // Start the game
+                    state.setGameActive(true);
+                    state.setCurrentPlayerIndex(0); // Host (Player 0) starts
+                    state.setIsMyTurnInRemote(true); // Host's turn first
+
+                    gameLogic.initializeGame(true); 
+                    ui.updateMessageArea("¡Tu turno! Empezá jugando.");
+                    ui.setBoardClickable(true);
+
+                    // Send back the full game state to sync
+                    sendFullGameState();
+                }
+                break;
+
+            case 'game_move':
+                if (data.turnCounter <= state.turnCounter && state.turnCounter !== 0) {
+                    console.warn(`[PeerJS] Ignoring stale/duplicate game_move. RX TC: ${data.turnCounter}, Local TC: ${state.turnCounter}.`);
+                    return;
+                }
+                console.log("[PeerJS] Received game_move", data);
+                state.setTurnCounter(data.turnCounter);
+                gameLogic.applyRemoteMove(data.move); 
+                break;
+
+            case 'full_state_update':
+                if (data.turnCounter <= state.turnCounter && state.turnCounter !== 0 && data.turnCounter !== 0) {
+                    console.warn(`[PeerJS] Ignoring stale/duplicate full_state_update. RX TC: ${data.turnCounter}, Local TC: ${state.turnCounter}.`, data);
+                    return;
+                }
+                console.log(`[PeerJS] Received full_state_update. TC: ${data.turnCounter}`);
+                gameLogic.applyFullState(data.gameState);
+                break;
+
+            case 'restart_request':
+                ui.showModalMessageWithActions(`${data.playerName || 'El oponente'} quiere reiniciar. ¿Aceptar?`, [ 
+                    { text: "Sí", action: () => { sendPeerData({ type: 'restart_ack' }); gameLogic.resetGame(true); ui.hideModalMessage(); }},
+                    { text: "No", action: () => { sendPeerData({ type: 'restart_nak' }); ui.hideModalMessage(); }}
+                ]);
+                break;
+                
+            case 'restart_ack':
+                ui.showModalMessage("Reinicio aceptado. Nueva partida..."); 
+                setTimeout(() => { gameLogic.resetGame(true); ui.hideModalMessage(); }, 1500);
+                break;
+                
+            case 'restart_nak':
+                ui.showModalMessage("El oponente rechazó el reinicio."); 
+                setTimeout(ui.hideModalMessage, 2000);
+                break;
+
+            default:
+                console.warn(`[PeerJS] Received unhandled data type: ${data.type}`, data);
+        }
+    },
+
+    onConnectionClose: () => {
+        console.log(`[PeerJS] Connection closed.`);
+        if (state.pvpRemoteActive) {
+            ui.showModalMessage("El oponente se ha desconectado."); 
+            ui.updateMessageArea("Conexión perdida.");
+        }
+        state.resetNetworkState();
+        ui.updateGameModeUI();
+        if (state.gameActive) gameLogic.endGameAbruptly(); 
+    },
+
+    onError: (err) => {
+        console.error(`[PeerJS] Error: `, err);
+        let message = err.message || (typeof err === 'string' ? err : 'Error desconocido'); 
+        if (err.type) {
+            message = `${err.type}: ${message}`;
+            if (err.type === 'peer-unavailable') {
+                const peerIdMsgPart = err.message.match(/peer\s(.+)/)?.[1] || 'desconocido';
+                message = `No se pudo conectar al jugador: ${peerIdMsgPart}. Verificá el ID e intentá de nuevo.`; 
             }
-        });
-    });
+        }
+        ui.showModalMessage(`Error de conexión: ${message}`);
+        ui.updateMessageArea("Error de conexión.", true);
+        state.resetNetworkState();
+        ui.updateGameModeUI();
+        ui.hideQRCode();
+    }
+};
 
-    state.setIsMyTurnInRemote(state.currentPlayerIndex === state.myPlayerIdInRemoteGame && state.gameActive);
-    ui.setBoardClickable(state.isMyTurnInRemote);
-    ui.updateScoresDisplay();
-    ui.updatePlayerTurnDisplay();
-
-    if (!state.gameActive && state.filledBoxesCount === state.totalPossibleBoxes) {
-        announceWinner();
+// Initialize PeerJS with optional custom callbacks
+export function ensurePeerInitialized(customCallbacks = {}) {
+    if (window.peerJsMultiplayer?.init) {
+        const effectiveCallbacks = {
+            ...peerJsCallbacks,
+            onPeerOpen: (id) => {
+                peerJsCallbacks.onPeerOpen(id);
+                customCallbacks.onPeerOpen?.(id);
+            },
+            onError: (err) => {
+                peerJsCallbacks.onError(err);
+                customCallbacks.onError?.(err);
+            },
+            onNewConnection: (conn) => {
+                peerJsCallbacks.onNewConnection(conn);
+                customCallbacks.onNewConnection?.(conn);
+            },
+            onConnectionOpen: () => {
+                peerJsCallbacks.onConnectionOpen();
+                customCallbacks.onConnectionOpen?.();
+            },
+            onDataReceived: (data) => {
+                peerJsCallbacks.onDataReceived(data);
+                customCallbacks.onDataReceived?.(data);
+            },
+            onConnectionClose: () => {
+                peerJsCallbacks.onConnectionClose();
+                customCallbacks.onConnectionClose?.();
+            }
+        };
+        window.peerJsMultiplayer.init(null, effectiveCallbacks);
+    } else {
+        console.error("[PeerJS] peerJsMultiplayer.init not found.");
+        customCallbacks.onError?.({ type: 'init_failed', message: 'Módulo multijugador no disponible.' }); 
     }
 }
 
-// Placeholder: In a real scenario, you'd need a more robust way to know who drew each line
-function findLineOwner(r, c, type) {
-    // This is a simplified placeholder.
-    // Try to find an adjacent box owned by a player.
-    if (type === 'h') {
-        if (state.boxes[r]?.[c] !== -1) return state.boxes[r][c];
-        if (state.boxes[r-1]?.[c] !== -1) return state.boxes[r-1][c];
-    } else { // type === 'v'
-        if (state.boxes[r]?.[c] !== -1) return state.boxes[r][c];
-        if (state.boxes[r]?.[c-1] !== -1) return state.boxes[r][c-1];
-    }
-    return 0; // Default to player 0 or a neutral color indicator
+export function initializePeerAsHost(stopPreviousGameCallback) {
+    stopPreviousGameCallback?.();
+    state.setPvpRemoteActive(true);
+    state.setIAmPlayer1InRemote(true);
+    state.setGamePaired(false);
+    state.setCurrentHostPeerId(null); 
+    state.setMyPlayerIdInRemoteGame(0); // HOST is Player 0
+
+    ui.updateGameModeUI();
+    ui.updateMessageArea("Estableciendo conexión como Host..."); 
+    ui.hideModalMessage();
+
+    ensurePeerInitialized();
 }
 
-export function endGameAbruptly() {
-    state.setGameActive(false);
-    ui.updateMessageArea("El juego terminó inesperadamente.", true); // Translated
-    ui.setBoardClickable(false);
-    // Optionally, show modal or navigate to setup screen
+export function initializePeerAsJoiner(rawHostIdFromUrlOrPrompt, stopPreviousGameCallback) {
+    stopPreviousGameCallback?.();
+    state.setPvpRemoteActive(true);
+    state.setIAmPlayer1InRemote(false);
+    state.setGamePaired(false);
+    state.setMyPlayerIdInRemoteGame(1); // JOINER is Player 1
+
+    ui.updateGameModeUI();
+    ui.hideModalMessage();
+
+    // Use the raw host ID directly (no prefix manipulation needed)
+    const hostIdToConnect = rawHostIdFromUrlOrPrompt;
+
+    if (!hostIdToConnect?.trim()) {
+        ui.showModalMessage("ID del Host inválido."); 
+        ui.updateMessageArea("Cancelado."); 
+        state.resetNetworkState();
+        ui.updateGameModeUI();
+        return;
+    }
+
+    state.setCurrentHostPeerId(hostIdToConnect.trim()); // Store the raw ID
+    ui.updateMessageArea(`Intentando conectar a ${hostIdToConnect}...`); 
+    ui.showModalMessage(`Conectando a ${hostIdToConnect}...`); 
+
+    ensurePeerInitialized(); 
+}
+
+export function connectToDiscoveredPeer(opponentRawPeerId) {
+    if (!opponentRawPeerId) {
+        console.error("connectToDiscoveredPeer: opponentRawPeerId is null or undefined.");
+        peerJsCallbacks.onError?.({type: 'connect_error', message: 'ID de par remoto nulo.'}); 
+        return;
+    }
+    
+    if (window.peerJsMultiplayer?.connect) {
+        console.log(`[PeerJS] Attempting to connect to discovered peer: ${opponentRawPeerId}`);
+        state.setPvpRemoteActive(true);
+        state.setCurrentHostPeerId(opponentRawPeerId); // Store raw ID
+        window.peerJsMultiplayer.connect(opponentRawPeerId); // Connect with raw ID
+    } else {
+        console.error("connectToDiscoveredPeer: peerJsMultiplayer.connect not found.");
+        peerJsCallbacks.onError?.({type: 'connect_error', message: 'Función de conexión P2P no disponible.'}); 
+    }
+}
+
+export function sendPeerData(data) {
+    if (window.peerJsMultiplayer?.send && state.gamePaired) {
+        console.log(`[PeerJS] TX: Type: ${data.type}`, data);
+        window.peerJsMultiplayer.send(data);
+    } else if (!state.gamePaired) {
+        console.warn(`[PeerJS] Cannot send, game not paired. Type: ${data.type}.`, data);
+    } else {
+        console.error(`[PeerJS] peerJsMultiplayer.send not available. Type: ${data.type}.`, data);
+    }
+}
+
+export function closePeerSession() {
+    if (window.peerJsMultiplayer?.close) {
+        window.peerJsMultiplayer.close();
+    }
+}
+
+export function sendFullGameState() {
+    if (!state.iAmPlayer1InRemote || !state.gamePaired) return; 
+
+    const gameStatePayload = {
+        numRows: state.numRows,
+        numCols: state.numCols,
+        numPlayers: state.numPlayers,
+        playersData: state.playersData.map(p => ({ 
+            name: p.name, 
+            icon: p.icon, 
+            color: p.color, 
+            score: p.score, 
+            id: p.id 
+        })),
+        currentPlayerIndex: state.currentPlayerIndex,
+        horizontalLines: state.horizontalLines,
+        verticalLines: state.verticalLines,
+        boxes: state.boxes,
+        filledBoxesCount: state.filledBoxesCount,
+        gameActive: state.gameActive,
+        turnCounter: state.turnCounter
+    };
+    sendPeerData({ 
+        type: 'full_state_update', 
+        gameState: gameStatePayload, 
+        turnCounter: state.turnCounter 
+    });
 }
