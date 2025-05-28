@@ -1,4 +1,4 @@
-// peerConnection.js - FIXED to stop matchmaking when incoming connection received
+// peerConnection.js - FIXED with proper role detection based on connection direction
 
 import * as state from './state.js';
 import * as ui from './ui.js';
@@ -36,7 +36,16 @@ const peerJsCallbacks = {
     onNewConnection: (conn) => {
         console.log(`[PeerJS] Incoming connection from ${conn.peer}.`);
         
-        // CRITICAL FIX: Stop matchmaking search when receiving incoming connection
+        // CRITICAL FIX: If I receive an incoming connection, I am automatically the HOST/JOINER (depending on context)
+        // In random matching, if I receive incoming connection, I should be the JOINER who waits for game_init_data
+        console.log(`[PeerJS] Incoming connection detected - I will be the JOINER (receive game_init_data)`);
+        
+        // Force role to JOINER since I'm receiving the connection
+        state.setIAmPlayer1InRemote(false); // I am NOT the network host
+        state.setMyPlayerIdInRemoteGame(1);  // I am Player 1 in the game
+        state.setPvpRemoteActive(true);
+        
+        // Stop matchmaking search
         console.log(`[PeerJS] Stopping matchmaking search due to incoming connection from ${conn.peer}`);
         matchmaking.stopSearchingDueToIncomingConnection();
         
@@ -46,13 +55,14 @@ const peerJsCallbacks = {
     },
 
     onConnectionOpen: () => {
-        console.log(`[PeerJS] Data connection opened.`);
+        console.log(`[PeerJS] Data connection opened. My role - Am I Host? ${state.iAmPlayer1InRemote}`);
         state.setGamePaired(true);
         ui.hideModalMessage();
         ui.hideQRCode();
 
         if (window.peerJsMultiplayer?.send) {
             if (state.iAmPlayer1InRemote) {
+                // I am the HOST - I initiated the connection, so I send game_init_data
                 const hostPlayerData = {
                     id: 0,
                     name: state.playersData[0]?.name || 'Host',
@@ -72,21 +82,11 @@ const peerJsCallbacks = {
                     hostPlayer: hostPlayerData,
                     initialTurnCounter: state.turnCounter
                 });
-                ui.updateMessageArea("¡Conectado! Esperando al Jugador 2...");
+                ui.updateMessageArea("¡Conectado! Esperando respuesta del oponente...");
             } else {
-                const joinerPlayerData = {
-                    id: 1,
-                    name: state.playersData[1]?.name || 'Jugador 2',
-                    icon: state.playersData[1]?.icon || state.AVAILABLE_ICONS[1],
-                    color: state.playersData[1]?.color || state.DEFAULT_PLAYER_COLORS[1],
-                    score: 0
-                };
-                console.log("[PeerConnection] JOINER sending player_join_info as Player 1:", joinerPlayerData);
-                window.peerJsMultiplayer.send({
-                    type: 'player_join_info',
-                    player: joinerPlayerData
-                });
-                ui.updateMessageArea("¡Conectado! Iniciando partida...");
+                // I am the JOINER - I received the connection, so I wait for game_init_data
+                console.log("[PeerConnection] JOINER connected, waiting for game_init_data from host...");
+                ui.updateMessageArea("¡Conectado! Esperando configuración del juego...");
             }
         }
     },
@@ -101,11 +101,14 @@ const peerJsCallbacks = {
 
         switch (data.type) {
             case 'game_init_data':
+                // Only JOINER should receive and process game_init_data
                 if (!state.iAmPlayer1InRemote) {
                     console.log("[PeerJS] JOINER received game_init_data from Host", data);
                     state.setGameDimensions(data.settings.rows, data.settings.cols);
                     state.setNumPlayers(data.settings.numPlayers);
                     const hostData = data.hostPlayer;
+                    
+                    // Use existing player data for joiner, or create default
                     const myJoinerData = {
                         id: 1,
                         name: state.playersData[1]?.name || 'Jugador 2',
@@ -113,6 +116,7 @@ const peerJsCallbacks = {
                         color: state.playersData[1]?.color || state.DEFAULT_PLAYER_COLORS[1],
                         score: 0
                     };
+                    
                     const remoteSessionPlayers = [
                         { ...hostData, id: 0, score: 0 },
                         { ...myJoinerData, id: 1, score: 0 }
@@ -128,6 +132,15 @@ const peerJsCallbacks = {
                     gameLogic.initializeGame(true);
                     ui.updateMessageArea("Esperando a que empiece el host...");
                     ui.setBoardClickable(false);
+
+                    // JOINER sends back their player info
+                    console.log("[PeerConnection] JOINER sending player_join_info as Player 1:", myJoinerData);
+                    window.peerJsMultiplayer.send({
+                        type: 'player_join_info',
+                        player: myJoinerData
+                    });
+                } else {
+                    console.warn("[PeerJS] HOST received game_init_data - this should not happen in random matching!");
                 }
                 break;
 
@@ -240,6 +253,8 @@ const peerJsCallbacks = {
                     ui.setBoardClickable(true);
 
                     sendFullGameState();
+                } else {
+                    console.warn("[PeerJS] JOINER received player_join_info - this should not happen!");
                 }
                 break;
 
