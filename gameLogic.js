@@ -1,4 +1,4 @@
-// gameLogic.js - FIXED VERSION
+// gameLogic.js - FIXED VERSION - Proper totalPossibleBoxes calculation
 
 import * as state from './state.js';
 import * as ui from './ui.js';
@@ -28,6 +28,17 @@ export function initializeGame(isRemoteGame = false) {
         // based on exchanged info. We just ensure scores are 0.
         state.playersData.forEach(p => p.score = 0);
         state.setRemotePlayersData([...state.playersData]); // Sync remotePlayersData if it's used
+        
+        // CRITICAL FIX: Ensure game dimensions are properly set for remote games
+        // This should have been set by peerConnection.js, but let's verify
+        console.log(`[GameLogic] Remote game dimensions: ${state.numRows}x${state.numCols}, totalPossible: ${state.totalPossibleBoxes}`);
+        
+        // If totalPossibleBoxes is 0, recalculate it
+        if (state.totalPossibleBoxes === 0) {
+            console.log(`[GameLogic] FIXING: totalPossibleBoxes was 0, recalculating...`);
+            state.setGameDimensions(state.numRows, state.numCols);
+            console.log(`[GameLogic] FIXED: totalPossibleBoxes now: ${state.totalPossibleBoxes}`);
+        }
     }
 
     state.resetGameFlowState(); // Resets board, scores, turn counter etc.
@@ -44,8 +55,10 @@ export function initializeGame(isRemoteGame = false) {
     ui.setBoardClickable(state.pvpRemoteActive ? state.isMyTurnInRemote : true);
     if (ui.undoBtn) ui.undoBtn.disabled = true;
 
+    // Final verification
+    console.log(`[GameLogic] Game initialized. Dimensions: ${state.numRows}x${state.numCols}, totalPossible: ${state.totalPossibleBoxes}, Current player: ${state.currentPlayerIndex}`);
+
     // if (state.soundEnabled && sound.gameStartSound) sound.playSound(sound.gameStartSound);
-    console.log("Game initialized. Current player:", state.currentPlayerIndex);
 }
 
 /**
