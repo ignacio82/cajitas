@@ -1,8 +1,9 @@
-// peerConnection.js - MODIFIED for case-insensitive color check
+// peerConnection.js - FIXED to stop matchmaking when incoming connection received
 
 import * as state from './state.js';
 import * as ui from './ui.js';
 import * as gameLogic from './gameLogic.js';
+import * as matchmaking from './matchmaking_supabase.js';
 
 const CAJITAS_BASE_URL = "https://cajitas.martinez.fyi";
 
@@ -34,6 +35,11 @@ const peerJsCallbacks = {
 
     onNewConnection: (conn) => {
         console.log(`[PeerJS] Incoming connection from ${conn.peer}.`);
+        
+        // CRITICAL FIX: Stop matchmaking search when receiving incoming connection
+        console.log(`[PeerJS] Stopping matchmaking search due to incoming connection from ${conn.peer}`);
+        matchmaking.stopSearchingDueToIncomingConnection();
+        
         ui.hideQRCode();
         ui.showModalMessage("Jugador/a conectándose...");
         ui.updateMessageArea("Jugador/a conectándose...");
@@ -172,7 +178,7 @@ const peerJsCallbacks = {
                         detailsChanged = true;
                     }
 
-                    // MODIFIED: Case-insensitive color comparison
+                    // Case-insensitive color comparison
                     if (currentJoinerColor.toLowerCase() === hostData.color.toLowerCase()) {
                         const hostColorNormalized = hostData.color.toLowerCase();
                         // Find index of host color in a normalized list of available colors
@@ -204,7 +210,6 @@ const peerJsCallbacks = {
                         }
                         detailsChanged = true;
                     }
-
 
                     if (detailsChanged) {
                         console.log("[PeerConnection] Joiner details clashed with host or were updated.");

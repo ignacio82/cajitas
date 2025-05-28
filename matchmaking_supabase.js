@@ -1,4 +1,4 @@
-// matchmaking_supabase.js - MODIFIED for enhanced initialization logging
+// matchmaking_supabase.js - FIXED for proper random matching
 
 const SUPABASE_URL = "https://lunxhfsvlfyhqehpirdi.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx1bnhoZnN2bGZ5aHFlaHBpcmRpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgzMDMzMzMsImV4cCI6MjA2Mzg3OTMzM30.iKEnrtSVjwTQhB8OLahTANJzvCamR60bjhC6qvTtwxU";
@@ -90,61 +90,66 @@ export async function joinQueue(rawPeerId, callbacks) {
         console.log('[Cajitas Matchmaking] Se unió exitosamente a la cola.');
 
         let attempts = 0;
-        const MAX_ATTEMPTS_BEFORE_TIMEOUT_MESSAGE = 10; // e.g., 10 * 3s = 30s
+        const MAX_ATTEMPTS_BEFORE_TIMEOUT_MESSAGE = 15; // Increased from 10 to 15 (45 seconds)
 
         if (matchCheckInterval) clearInterval(matchCheckInterval);
         matchCheckInterval = setInterval(async () => {
             if (!lookingForMatch) {
+                console.log('[Cajitas Matchmaking] lookingForMatch is false, stopping search interval.');
                 clearInterval(matchCheckInterval);
+                matchCheckInterval = null;
                 return;
             }
             attempts++;
             console.log(`[Cajitas Matchmaking] Intento de búsqueda ${attempts}...`);
 
-            const { data: waitingPlayers, error: fetchError } = await supabase
-                .from(MATCHMAKING_TABLE)
-                .select('peer_id')
-                .eq('status', 'waiting')
-                .eq('game_type', 'cajitas')
-                .neq('peer_id', localPlayerSupabasePeerId)
-                .limit(1);
-
-            if (fetchError) {
-                console.error('[Cajitas Matchmaking] Error al buscar oponentes:', fetchError.message, fetchError);
-                // Optionally, you could stop the interval if fetch errors persist.
-                // For now, it will just keep trying.
-                return;
-            }
-
-            if (waitingPlayers && waitingPlayers.length > 0) {
-                const opponentSupabasePeerId = waitingPlayers[0].peer_id;
-                console.log(`[Cajitas Matchmaking] Oponente potencial encontrado: ${opponentSupabasePeerId}`);
-
-                const { error: deleteOpponentError } = await supabase
+            try {
+                const { data: waitingPlayers, error: fetchError } = await supabase
                     .from(MATCHMAKING_TABLE)
-                    .delete()
-                    .eq('peer_id', opponentSupabasePeerId)
-                    .eq('status', 'waiting');
+                    .select('peer_id')
+                    .eq('status', 'waiting')
+                    .eq('game_type', 'cajitas')
+                    .neq('peer_id', localPlayerSupabasePeerId)
+                    .limit(1);
 
-                if (!deleteOpponentError) { // Successfully claimed by deleting
-                    console.log(`[Cajitas Matchmaking] ¡Emparejado con ${opponentSupabasePeerId}!`);
-                    await leaveQueue(); // Remove self from queue
-                    
-                    const opponentRawPeerId = opponentSupabasePeerId.startsWith(CAJITAS_PEER_ID_PREFIX)
-                        ? opponentSupabasePeerId.substring(CAJITAS_PEER_ID_PREFIX.length)
-                        : opponentSupabasePeerId;
-
-                    callbacks.onMatchFound?.(opponentRawPeerId);
-                    return; // Exit interval logic
-                } else {
-                    console.log('[Cajitas Matchmaking] El oponente ya no estaba disponible (o error al reclamar), buscando de nuevo...', deleteOpponentError?.message);
+                if (fetchError) {
+                    console.error('[Cajitas Matchmaking] Error al buscar oponentes:', fetchError.message, fetchError);
+                    return;
                 }
-            }
 
-            if (attempts >= MAX_ATTEMPTS_BEFORE_TIMEOUT_MESSAGE && lookingForMatch) {
-                console.log('[Cajitas Matchmaking] Límite de tiempo de búsqueda alcanzado.');
-                callbacks.onTimeout?.();
-                await leaveQueue(); // Stop searching
+                if (waitingPlayers && waitingPlayers.length > 0) {
+                    const opponentSupabasePeerId = waitingPlayers[0].peer_id;
+                    console.log(`[Cajitas Matchmaking] Oponente potencial encontrado: ${opponentSupabasePeerId}`);
+
+                    // Try to claim the opponent by deleting their entry
+                    const { error: deleteOpponentError } = await supabase
+                        .from(MATCHMAKING_TABLE)
+                        .delete()
+                        .eq('peer_id', opponentSupabasePeerId)
+                        .eq('status', 'waiting');
+
+                    if (!deleteOpponentError) { // Successfully claimed by deleting
+                        console.log(`[Cajitas Matchmaking] ¡Emparejado con ${opponentSupabasePeerId}!`);
+                        await leaveQueue(); // Remove self from queue
+                        
+                        const opponentRawPeerId = opponentSupabasePeerId.startsWith(CAJITAS_PEER_ID_PREFIX)
+                            ? opponentSupabasePeerId.substring(CAJITAS_PEER_ID_PREFIX.length)
+                            : opponentSupabasePeerId;
+
+                        callbacks.onMatchFound?.(opponentRawPeerId);
+                        return; // Exit interval logic
+                    } else {
+                        console.log('[Cajitas Matchmaking] El oponente ya no estaba disponible (o error al reclamar), buscando de nuevo...', deleteOpponentError?.message);
+                    }
+                }
+
+                if (attempts >= MAX_ATTEMPTS_BEFORE_TIMEOUT_MESSAGE && lookingForMatch) {
+                    console.log('[Cajitas Matchmaking] Límite de tiempo de búsqueda alcanzado.');
+                    callbacks.onTimeout?.();
+                    await leaveQueue(); // Stop searching
+                }
+            } catch (error) {
+                console.error('[Cajitas Matchmaking] Error in search interval:', error);
             }
         }, 3000);
 
@@ -182,6 +187,17 @@ export async function leaveQueue() {
         localPlayerSupabasePeerId = null; // Clear it after attempting removal
     } else {
         console.log('[Cajitas Matchmaking] leaveQueue: No localPlayerSupabasePeerId or supabase client to perform delete.');
+    }
+}
+
+// NEW: Function to stop searching when an incoming connection is received
+export function stopSearchingDueToIncomingConnection() {
+    console.log('[Cajitas Matchmaking] stopSearchingDueToIncomingConnection called - stopping search due to incoming connection.');
+    lookingForMatch = false;
+    if (matchCheckInterval) {
+        clearInterval(matchCheckInterval);
+        matchCheckInterval = null;
+        console.log('[Cajitas Matchmaking] Match check interval cleared due to incoming connection.');
     }
 }
 
