@@ -1,7 +1,6 @@
 // ui.js
 
 import * as state from './state.js';
-// import * as sound from './sound.js'; // If UI actions directly trigger sounds not managed by gameLogic
 
 // ---------- DOM ELEMENT REFERENCES ----------
 export const mainTitle = document.getElementById('main-title');
@@ -21,12 +20,10 @@ export const scoresDisplay = document.getElementById('scores');
 export const gameBoardSVG = document.getElementById('game-board-svg');
 export const messageArea = document.getElementById('message-area');
 
-// Modal elements (already in your HTML)
 export const customModal = document.getElementById('custom-modal');
 export const modalMessageText = document.getElementById('modal-message-text');
 export const modalCloseBtn = document.getElementById('modal-close-btn');
 
-// Network Play UI Elements
 export const hostGameButton = document.getElementById('host-cajitas-btn');
 export const joinGameButton = document.getElementById('join-cajitas-btn');
 export const playRandomButton = document.getElementById('play-random-cajitas-btn');
@@ -34,7 +31,7 @@ export const playRandomButton = document.getElementById('play-random-cajitas-btn
 export const qrCodeContainer = document.getElementById('qr-code-container');
 export const gameIdDisplay = document.getElementById('game-id-display');
 export const copyGameIdButton = document.getElementById('copy-game-id-btn');
-export const cancelMatchmakingButton = document.getElementById('cancel-matchmaking-btn'); // Not used yet
+export const cancelMatchmakingButton = document.getElementById('cancel-matchmaking-btn');
 
 
 // ---------- UI UPDATE FUNCTIONS ----------
@@ -43,21 +40,14 @@ export function showSetupScreen() {
     if (setupSection) setupSection.classList.remove('hidden');
     if (gameArea) gameArea.classList.add('hidden');
     if (mainTitle) mainTitle.textContent = "Cajitas de Dani";
-    if(qrCodeContainer) qrCodeContainer.classList.add('hidden');
-    if(gameIdDisplay) gameIdDisplay.textContent = '';
-    if (document.getElementById('network-info-area')) {
-        document.getElementById('network-info-area').classList.add('hidden');
-    }
+    hideQRCode(); // Ensure QR area is hidden when going to setup
 }
 
 export function showGameScreen() {
     if (setupSection) setupSection.classList.add('hidden');
     if (gameArea) gameArea.classList.remove('hidden');
     if (mainTitle) mainTitle.textContent = "¡A Jugar!";
-    if(qrCodeContainer) qrCodeContainer.classList.add('hidden');
-    if (document.getElementById('network-info-area')) {
-        document.getElementById('network-info-area').classList.add('hidden');
-    }
+    hideQRCode(); // Ensure QR area is hidden when starting a game
 }
 
 export function updatePlayerTurnDisplay() {
@@ -89,7 +79,10 @@ export function updateScoresDisplay() {
     if (!playersToDisplay) return;
 
     playersToDisplay.forEach((player) => {
-        if (!player || typeof player.color !== 'string' || player.color.length < 7) return; // Basic validation
+        if (!player || typeof player.color !== 'string' || player.color.length < 7) { // Basic validation for color
+             console.warn("updateScoresDisplay: Invalid player data or color", player);
+             return;
+        }
         const scoreDiv = document.createElement('div');
         scoreDiv.classList.add('p-2', 'rounded-lg', 'shadow-md', 'text-sm', 'md:text-base');
         try {
@@ -99,6 +92,7 @@ export function updateScoresDisplay() {
             scoreDiv.style.backgroundColor = `rgba(${r_col},${g_col},${b_col},0.3)`;
             scoreDiv.style.border = `2px solid ${player.color}`;
         } catch (e) {
+            console.warn("updateScoresDisplay: Error parsing player color, using fallback.", player.color, e);
             scoreDiv.style.backgroundColor = `rgba(200,200,200,0.3)`; // Fallback
             scoreDiv.style.border = `2px solid #888888`;
         }
@@ -341,8 +335,11 @@ export function fillBoxOnBoard(br, bc, playerIdx) {
     boxText.style.transform = 'scale(0.2)'; boxText.style.opacity = '0';
     filledBoxesGroup.appendChild(boxText);
     requestAnimationFrame(() => {
-        boxRect.style.transform = 'scale(1)';
-        boxText.style.transform = 'scale(1)'; boxText.style.opacity = '1';
+        if (boxRect) boxRect.style.transform = 'scale(1)'; // Check if element still exists
+        if (boxText) { // Check if element still exists
+             boxText.style.transform = 'scale(1)';
+             boxText.style.opacity = '1';
+        }
     });
     return { boxRect, boxText };
 }
@@ -361,9 +358,9 @@ export function clearBoardForNewGame() {
 
 export function removeVisualLineFromBoard(type, r_val, c_val) {
     const lineElement = document.getElementById(`line-${type}-${r_val}-${c_val}`);
-    if (lineElement) {
+    if (lineElement && lineElement.parentNode) { // Added parentNode check
         lineElement.style.opacity = '0';
-        setTimeout(() => lineElement.remove(), 300);
+        setTimeout(() => { if (lineElement.parentNode) lineElement.remove(); }, 300);
     }
     const slotElement = document.getElementById(`slot-${type}-${r_val}-${c_val}`);
      if (slotElement) {
@@ -374,58 +371,109 @@ export function removeVisualLineFromBoard(type, r_val, c_val) {
 export function removeFilledBoxFromBoard(br, bc) {
     const boxElement = document.getElementById(`box-${br}-${bc}`);
     const textElement = document.getElementById(`boxtext-${br}-${bc}`);
-    if (boxElement) {
+    if (boxElement && boxElement.parentNode) { // Added parentNode check
         boxElement.style.transform = 'scale(0.2)';
-        setTimeout(() => boxElement.remove(), 300);
+        setTimeout(() => { if (boxElement.parentNode) boxElement.remove(); }, 300);
     }
-    if (textElement) {
+    if (textElement && textElement.parentNode) { // Added parentNode check
         textElement.style.transform = 'scale(0.2)';
         textElement.style.opacity = '0';
-        setTimeout(() => textElement.remove(), 300);
+        setTimeout(() => { if (textElement.parentNode) textElement.remove(); }, 300);
     }
 }
 
+// ---------- NETWORK UI FUNCTIONS ----------
 export function displayQRCode(gameLink, displayId) {
+    console.log("[UI] displayQRCode called with gameLink:", gameLink, "displayId:", displayId);
     const networkInfoDiv = document.getElementById('network-info-area');
-    if (!qrCodeContainer || !window.QRious) {
-        console.warn('QR code display assets missing or QRious library not loaded.');
-        showModalMessage(`ID del Juego: ${displayId}. Compartilo para que alguien se una.`);
+
+    if (!qrCodeContainer) {
+        console.error("[UI] qrCodeContainer element not found!");
+        showModalMessage(`ID del Juego: ${displayId}. Compartilo para que alguien se una. (Error: Contenedor QR no encontrado)`);
         return;
     }
-    if (networkInfoDiv) networkInfoDiv.classList.remove('hidden');
-    qrCodeContainer.innerHTML = '';
-    const canvas = document.createElement('canvas');
-    new QRious({
-        element: canvas, value: gameLink, size: 160, padding: 8, level: 'H',
-        foreground: '#FF1493', background: '#FFF8FB'
-    });
-    qrCodeContainer.appendChild(canvas);
+    if (!window.QRious) {
+        console.warn('[UI] QRious library not loaded.');
+        showModalMessage(`ID del Juego: ${displayId}. Compartilo para que alguien se una. (Error: Librería QR no cargada)`);
+        return;
+    }
 
-    if(gameIdDisplay) gameIdDisplay.textContent = `ID: ${displayId}`;
+    if (networkInfoDiv) {
+        console.log("[UI] Making networkInfoDiv visible.");
+        networkInfoDiv.classList.remove('hidden');
+    } else {
+        console.warn("[UI] 'network-info-area' div not found. QR code might not be fully visible or styled correctly.");
+        // Fallback to modal if the dedicated area is missing.
+        showModalMessage(`ID: ${displayId}. Link: ${gameLink}. ¡Compartilo!`);
+        return; // Return here to avoid trying to use qrCodeContainer if networkInfoDiv is missing
+    }
+
+    qrCodeContainer.innerHTML = ''; // Clear previous QR
+    const canvas = document.createElement('canvas');
+    try {
+        new QRious({
+            element: canvas,
+            value: gameLink,
+            size: 160,
+            padding: 8,
+            level: 'H',
+            foreground: '#FF1493',
+            background: '#FFF8FB'
+        });
+        qrCodeContainer.appendChild(canvas);
+        console.log("[UI] QR code generated and appended.");
+    } catch(e) {
+        console.error("[UI] Error generating QR code with QRious:", e);
+        qrCodeContainer.textContent = "Error al generar QR.";
+        showModalMessage(`Error al generar QR. ID: ${displayId}. Link: ${gameLink}`);
+        return;
+    }
+
+
+    if(gameIdDisplay) gameIdDisplay.textContent = `ID para compartir: ${displayId}`;
     if(copyGameIdButton) {
+        copyGameIdButton.textContent = "Copiar Enlace del Juego";
         copyGameIdButton.onclick = () => {
             navigator.clipboard.writeText(gameLink)
-                .then(() => updateMessageArea('Enlace copiado!'))
-                .catch(err => updateMessageArea('Error al copiar enlace.', true));
+                .then(() => updateMessageArea('¡Enlace del juego copiado!'))
+                .catch(err => {
+                    console.error('[UI] Error copying game link to clipboard:', err);
+                    updateMessageArea('Error al copiar enlace.', true);
+                });
         };
     }
 }
 
 export function hideQRCode() {
+    console.log("[UI] hideQRCode called.");
     const networkInfoDiv = document.getElementById('network-info-area');
-    if (networkInfoDiv) networkInfoDiv.classList.add('hidden');
-    if (qrCodeContainer) qrCodeContainer.innerHTML = ''; // Clear the QR code itself
+    if (networkInfoDiv) {
+        networkInfoDiv.classList.add('hidden');
+        console.log("[UI] networkInfoDiv hidden.");
+    }
+    if (qrCodeContainer) qrCodeContainer.innerHTML = '';
     if (gameIdDisplay) gameIdDisplay.textContent = '';
 }
 
 export function updateGameModeUI() {
+    console.log("[UI] updateGameModeUI called. PvP Active:", state.pvpRemoteActive, "Paired:", state.gamePaired, "Am P1:", state.iAmPlayer1InRemote, "Host ID:", state.currentHostPeerId);
     const networkInfoDiv = document.getElementById('network-info-area');
 
-    if (hostGameButton) hostGameButton.style.display = (state.pvpRemoteActive) ? 'none' : 'inline-block';
-    if (joinGameButton) joinGameButton.style.display = (state.pvpRemoteActive) ? 'none' : 'inline-block';
-    if (playRandomButton) playRandomButton.style.display = (state.pvpRemoteActive) ? 'none' : 'inline-block';
+    const isHostingOrJoining = state.pvpRemoteActive; // Simplified condition
 
-    if (cancelMatchmakingButton) cancelMatchmakingButton.style.display = 'none';
+    if (hostGameButton) hostGameButton.style.display = isHostingOrJoining ? 'none' : 'inline-block';
+    if (joinGameButton) joinGameButton.style.display = isHostingOrJoining ? 'none' : 'inline-block';
+    if (playRandomButton) playRandomButton.style.display = isHostingOrJoining ? 'none' : 'inline-block';
+
+    if (cancelMatchmakingButton) {
+        const isActivelyMatchmaking = state.pvpRemoteActive &&
+                                   !state.gamePaired &&
+                                   hostGameButton?.style.display === 'none' && // Check if host/join/random are hidden
+                                   joinGameButton?.style.display === 'none' &&
+                                   playRandomButton?.style.display === 'none' &&
+                                   !state.currentHostPeerId; // Not yet in a direct hosting/joining state with an ID
+        cancelMatchmakingButton.style.display = isActivelyMatchmaking ? 'inline-block' : 'none';
+    }
 
     const disableSetupInputs = state.pvpRemoteActive;
     if(rowsInput) rowsInput.disabled = disableSetupInputs;
@@ -439,17 +487,33 @@ export function updateGameModeUI() {
     }
     playerCustomizationArea?.querySelectorAll('input, select').forEach(el => { if(el) el.disabled = disableSetupInputs; });
 
-    if (state.pvpRemoteActive && !state.gamePaired && state.iAmPlayer1InRemote && state.currentHostPeerId) {
-        // This case is handled by displayQRCode in peerConnection.js, so networkInfoDiv should be visible
-    } else if (state.pvpRemoteActive && !state.gamePaired && !state.iAmPlayer1InRemote) {
-        if (networkInfoDiv) networkInfoDiv.classList.add('hidden');
-        updateMessageArea(`Intentando conectar a ${state.currentHostPeerId || 'Host'}...`); // FIXED
+    const hostIsActivelyWaitingWithId = state.pvpRemoteActive && !state.gamePaired && state.iAmPlayer1InRemote && state.currentHostPeerId;
+
+    if (hostIsActivelyWaitingWithId) {
+        // Visibility handled by displayQRCode
+        // Message area update specific to this state
+        updateMessageArea(`Compartí el enlace o ID: ${state.CAJITAS_PEER_ID_PREFIX}${state.currentHostPeerId}`);
+    } else if (!hostIsActivelyWaitingWithId && networkInfoDiv && !networkInfoDiv.classList.contains('hidden')) {
+        // If not in the "host waiting" state, but the div is somehow visible, hide it.
+        // This is a safeguard. displayQRCode shows it, hideQRCode hides it.
+        // updateGameModeUI mostly ensures it's hidden UNLESS host is actively waiting.
+        hideQRCode();
+    }
+
+
+    // Update general messages based on other states
+    if (state.pvpRemoteActive && !state.gamePaired) {
+        if (!state.iAmPlayer1InRemote && state.currentHostPeerId) { // Joiner, attempting to connect
+            updateMessageArea(`Intentando conectar a ${state.currentHostPeerId}...`);
+        } else if (state.iAmPlayer1InRemote && !state.currentHostPeerId) { // Host, before PeerID assigned
+            updateMessageArea("Estableciendo conexión como Host...");
+        }
+        // Note: the case for "Host, after PeerJS ID, waiting for joiner" is handled above by hostIsActivelyWaitingWithId
     } else if (state.pvpRemoteActive && state.gamePaired) {
-        if (networkInfoDiv) networkInfoDiv.classList.add('hidden');
-        // Status updated by updatePlayerTurnDisplay or game events
-    } else { // Local game setup
-        if (networkInfoDiv) networkInfoDiv.classList.add('hidden');
-        updateMessageArea("Configurá la partida y dale a Empezar!"); // FIXED
+        // Game is paired. Player turn display shows current status.
+        // No general message needed here unless it's a specific event.
+    } else if (!state.gameActive) { // Local game setup, game not yet active
+         updateMessageArea("Configurá la partida y dale a Empezar!");
     }
 }
 
