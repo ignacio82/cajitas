@@ -1,0 +1,310 @@
+/* ========================================
+   Cajitas de Danielle - Main Stylesheet
+   ======================================== */
+
+/* ----- FONTS ----- */
+body {
+    font-family: 'Comic Neue', 'Inter', sans-serif;
+}
+
+#main-title {
+    font-family: 'Comic Neue', cursive;
+}
+
+/* ----- GAME BOARD STYLES ----- */
+.line-slot {
+    cursor: pointer;
+    fill: rgba(0,0,0,0.03);
+    transition: fill 0.2s;
+}
+
+.line-slot:hover {
+    fill: rgba(128, 0, 128, 0.2);
+}
+
+.line-slot.disabled-slot:hover {
+    fill: rgba(0,0,0,0.03);
+    cursor: default;
+}
+
+.line-drawn {
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.4s ease-out, opacity 0.3s ease-out;
+}
+
+.box-text {
+    font-weight: bold;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+}
+
+.box-filled-anim {
+    transition: transform 0.35s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+}
+
+.box-text-anim {
+    transition: transform 0.35s cubic-bezier(0.68, -0.55, 0.27, 1.55), opacity 0.3s ease-out;
+    transition-delay: 0.05s;
+}
+
+#game-board-svg {
+    touch-action: none;
+}
+
+/* ----- MODAL STYLES ----- */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 100;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.6);
+}
+
+.modal-content {
+    background-color: #fff0f5;
+    margin: 10% auto;
+    padding: 25px;
+    border: 2px solid #ffb6c1;
+    width: 90%;
+    max-width: 450px;
+    border-radius: 12px;
+    text-align: center;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+}
+
+.modal-close-button {
+    background-color: #FF69B4;
+    color: white;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 20px;
+    font-weight: bold;
+    transition: background-color 0.2s;
+}
+
+.modal-close-button:hover {
+    background-color: #FF1493;
+}
+
+/* ----- PLAYER SETUP CARDS ----- */
+.player-setup-card {
+    border: 2px solid;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 10px;
+    background-color: #fdf4f6;
+}
+
+.player-setup-card label {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: bold;
+}
+
+.player-setup-card input[type="text"],
+.player-setup-card select,
+.player-setup-card input[type="color"] {
+    width: 100%;
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    margin-bottom: 8px;
+    box-sizing: border-box;
+}
+
+.player-setup-card input[type="color"] {
+    height: 40px;
+}
+
+/* ----- BUTTON STYLES ----- */
+.btn-primary {
+    width: 100%;
+    background-color: #ec4899;
+    color: white;
+    font-weight: 600;
+    padding: 12px 16px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: all 0.15s ease-in-out;
+    font-size: 18px;
+    margin-top: 16px;
+    border: none;
+    cursor: pointer;
+}
+
+.btn-primary:hover {
+    background-color: #db2777;
+}
+
+.btn-secondary {
+    width: 50%;
+    background-color: #0ea5e9;
+    color: white;
+    font-weight: 600;
+    padding: 12px 16px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: all 0.15s ease-in-out;
+    font-size: 18px;
+    border: none;
+    cursor: pointer;
+}
+
+.btn-secondary:hover {
+    background-color: #0284c7;
+}
+
+.btn-secondary:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.btn-accent {
+    width: 50%;
+    background-color: #fbbf24;
+    color: white;
+    font-weight: 600;
+    padding: 12px 16px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: all 0.15s ease-in-out;
+    font-size: 18px;
+    border: none;
+    cursor: pointer;
+}
+
+.btn-accent:hover {
+    background-color: #f59e0b;
+}
+
+.network-btn {
+    background-color: #8A2BE2;
+    color: white;
+    font-weight: bold;
+    padding: 10px 15px;
+    border-radius: 8px;
+    margin-top: 5px;
+    margin-right: 5px;
+    transition: background-color 0.2s;
+    border: none;
+    cursor: pointer;
+}
+
+.network-btn:hover {
+    background-color: #6A1B9A;
+}
+
+.btn-copy {
+    margin-top: 8px;
+    background-color: #3b82f6;
+    color: white;
+    font-size: 14px;
+    padding: 8px 16px;
+    border-radius: 6px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-copy:hover {
+    background-color: #2563eb;
+}
+
+.btn-cancel {
+    margin-top: 8px;
+    background-color: #ef4444;
+    color: white;
+    font-size: 14px;
+    padding: 8px 16px;
+    border-radius: 6px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-cancel:hover {
+    background-color: #dc2626;
+}
+
+/* ----- NETWORK INFO AREA ----- */
+.network-info-area {
+    margin-top: 16px;
+    padding: 16px;
+    background-color: #fce7f3;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.network-info-area.hidden {
+    display: none;
+}
+
+.qr-code-container {
+    margin: 8px 0;
+    display: inline-block;
+    background-color: white;
+    padding: 8px;
+    border-radius: 6px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* ----- MESSAGE AREA ----- */
+.message-area {
+    margin-top: 16px;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 500;
+    color: #ef4444;
+    min-height: 24px;
+}
+
+/* ----- UTILITY CLASSES ----- */
+.hidden {
+    display: none;
+}
+
+/* ----- RESPONSIVE DESIGN ----- */
+@media (max-width: 640px) {
+    .btn-primary,
+    .btn-secondary,
+    .btn-accent {
+        font-size: 16px;
+        padding: 10px 12px;
+    }
+    
+    .network-btn {
+        font-size: 14px;
+        padding: 8px 12px;
+    }
+    
+    #main-title {
+        font-size: 2rem;
+    }
+}
+
+/* ----- ACCESSIBILITY ----- */
+@media (prefers-reduced-motion: reduce) {
+    .line-slot,
+    .line-drawn,
+    .box-filled-anim,
+    .box-text-anim,
+    .modal-close-button,
+    .network-btn,
+    .btn-primary,
+    .btn-secondary,
+    .btn-accent,
+    .btn-copy,
+    .btn-cancel {
+        transition: none;
+    }
+}
