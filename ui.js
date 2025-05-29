@@ -59,7 +59,7 @@ export function showSetupScreen() {
     if (lobbyArea) lobbyArea.classList.add('hidden');
     if (mainTitle) mainTitle.textContent = "Cajitas de Danielle";
     hideQRCode();
-    updateGameModeUI(); // Ensure correct buttons are shown/hidden
+    updateGameModeUI(); 
 }
 
 export function showLobbyScreen() {
@@ -67,10 +67,6 @@ export function showLobbyScreen() {
     if (gameArea) gameArea.classList.add('hidden');
     if (lobbyArea) lobbyArea.classList.remove('hidden');
     if (mainTitle) mainTitle.textContent = "Sala de Espera";
-    // Do not hide QR code here unconditionally.
-    // If the host just created the room, the QR code might still be relevant on the setup screen section
-    // or the calling function will manage its visibility.
-    // updateLobbyUI will be called to populate details
 }
 
 export function showGameScreen() {
@@ -94,7 +90,7 @@ export function updateLobbyUI(roomData = state.networkRoomData) {
     if (lobbyPlayerCount) lobbyPlayerCount.textContent = `${roomData.players.length}/${roomData.maxPlayers}`;
 
     if (lobbyPlayerList) {
-        lobbyPlayerList.innerHTML = ''; // Clear existing player cards
+        lobbyPlayerList.innerHTML = ''; 
         roomData.players.forEach(player => {
             const card = document.createElement('div');
             card.className = 'player-lobby-card flex items-center justify-between p-3 bg-white rounded-lg shadow transition-all duration-300 ease-in-out';
@@ -120,7 +116,6 @@ export function updateLobbyUI(roomData = state.networkRoomData) {
                 nameSpan.textContent += ' (Vos)';
             }
 
-
             infoDiv.append(iconSpan, nameSpan);
 
             const readySpan = document.createElement('span');
@@ -143,10 +138,9 @@ export function updateLobbyUI(roomData = state.networkRoomData) {
         const myPlayerData = roomData.players.find(p => p.peerId === state.myPeerId);
         if (myPlayerData) {
             lobbyToggleReadyBtn.textContent = myPlayerData.isReady ? 'Marcar como NO Listo ❌' : 'Marcar como Listo 👍';
-            lobbyToggleReadyBtn.classList.toggle('bg-red-500', myPlayerData.isReady); // Example for "not ready" state
+            lobbyToggleReadyBtn.classList.toggle('bg-red-500', myPlayerData.isReady); 
             lobbyToggleReadyBtn.classList.toggle('hover:bg-red-600', myPlayerData.isReady);
-            lobbyToggleReadyBtn.classList.toggle('btn-secondary', !myPlayerData.isReady); // Default "ready" state
-
+            lobbyToggleReadyBtn.classList.toggle('btn-secondary', !myPlayerData.isReady); 
         }
         lobbyToggleReadyBtn.disabled = roomData.roomState === 'in_game';
     }
@@ -158,17 +152,13 @@ export function updateLobbyUI(roomData = state.networkRoomData) {
         lobbyStartGameLeaderBtn.disabled = !allConnectedAndReady;
         lobbyStartGameLeaderBtn.title = !allConnectedAndReady ? `Se necesitan ${state.MIN_PLAYERS_NETWORK}-${roomData.maxPlayers} jugadores listos.` : 'Iniciar el juego para todos';
     }
-    
-    // You might want to update lobbyMessageArea based on roomState or specific events
-    // Example: if (roomData.roomState === 'ready_check') updateLobbyMessage("¡Todos listos! El líder puede iniciar el juego.");
 }
 
 export function updateLobbyMessage(message, isError = false) {
     if (!lobbyMessageArea) return;
     lobbyMessageArea.textContent = message;
-    lobbyMessageArea.style.color = isError ? 'red' : '#D946EF'; // A vibrant pink/purple
+    lobbyMessageArea.style.color = isError ? 'red' : '#D946EF'; 
 }
-
 
 // ---------- GENERAL UI UPDATE FUNCTIONS ----------
 
@@ -203,22 +193,18 @@ export function updatePlayerTurnDisplay() {
 export function updateScoresDisplay() {
     if (!scoresDisplay) return;
     scoresDisplay.innerHTML = '';
-
-    // In network games, state.playersData should be authoritative once the game starts.
-    // It's populated from networkRoomData.players by the leader.
     const playersToDisplay = state.playersData;
 
     if (!playersToDisplay || playersToDisplay.length === 0) return;
 
     playersToDisplay.forEach((player) => {
-        if (!player || typeof player.color !== 'string' || player.color.length < 3) { // Min length for hex
+        if (!player || typeof player.color !== 'string' || player.color.length < 3) { 
              console.warn("updateScoresDisplay: Invalid player data or color", player);
              return;
         }
         const scoreDiv = document.createElement('div');
         scoreDiv.classList.add('p-2', 'rounded-lg', 'shadow-md', 'text-sm', 'md:text-base');
         try {
-            // Basic check for hex color
             if (!player.color.startsWith('#')) throw new Error("Color not hex");
             let r_col = parseInt(player.color.slice(1, 3), 16);
             let g_col = parseInt(player.color.slice(3, 5), 16);
@@ -232,7 +218,7 @@ export function updateScoresDisplay() {
             scoreDiv.style.backgroundColor = `rgba(200,200,200,0.3)`;
             scoreDiv.style.border = `2px solid #888888`;
         }
-        scoreDiv.style.color = player.color; // Text color is the player's solid color
+        scoreDiv.style.color = player.color; 
         scoreDiv.style.fontWeight = 'bold';
         scoreDiv.innerHTML = `${player.name || 'Jugador'} ${player.icon || '❓'}: <span class="text-xl md:text-2xl">${player.score !== undefined ? player.score : 0}</span>`;
         scoresDisplay.appendChild(scoreDiv);
@@ -245,7 +231,7 @@ export function updateMessageArea(message, isError = false, duration = 3000) {
     messageArea.style.color = isError ? 'red' : '#FF69B4';
     if (message && !isError && duration > 0) {
         setTimeout(() => {
-            if (messageArea.textContent === message) { // Clear only if it hasn't been replaced
+            if (messageArea.textContent === message) { 
                 messageArea.textContent = '';
             }
         }, duration);
@@ -272,44 +258,41 @@ export function showModalMessage(message) {
     modalCloseBtn.innerHTML = "¡Dale!";
     modalCloseBtn.style.display = 'inline-block';
     modalCloseBtn.onclick = () => hideModalMessage();
-    modalDynamicButtons.innerHTML = ''; // Clear dynamic buttons
+    modalDynamicButtons.innerHTML = ''; 
     modalDynamicButtons.style.display = 'none';
 }
 
 export function hideModalMessage() {
     if (!customModal || !modalCloseBtn || !modalDynamicButtons) return;
     customModal.style.display = "none";
-    modalCloseBtn.style.display = 'inline-block'; // Ensure it's visible for next simple modal
+    modalCloseBtn.style.display = 'inline-block'; 
     modalDynamicButtons.style.display = 'none';
 }
 
 export function showModalMessageWithActions(message, actions) {
     if (!customModal || !modalMessageText || !modalCloseBtn || !modalDynamicButtons) return;
     modalMessageText.textContent = message;
-    modalCloseBtn.style.display = 'none'; // Hide default close button
+    modalCloseBtn.style.display = 'none'; 
 
-    modalDynamicButtons.innerHTML = ''; // Clear previous buttons
+    modalDynamicButtons.innerHTML = ''; 
     actions.forEach(actionInfo => {
         const button = document.createElement('button');
         button.textContent = actionInfo.text;
-        // Tailwind classes for styling, adjust as needed
         button.className = 'bg-pink-500 hover:bg-pink-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition-colors';
-        if (actionInfo.isConfirm) { // Example: more prominent confirm button
+        if (actionInfo.isConfirm) { 
              button.classList.replace('bg-pink-500', 'bg-green-500');
              button.classList.replace('hover:bg-pink-600', 'hover:bg-green-600');
         }
-         if (actionInfo.isCancel) { // Example: different style for cancel
+         if (actionInfo.isCancel) { 
              button.classList.replace('bg-pink-500', 'bg-gray-400');
              button.classList.replace('hover:bg-pink-600', 'hover:bg-gray-500');
         }
         button.onclick = () => {
             actionInfo.action();
-            // Optionally hide modal automatically, or let action decide
-            // hideModalMessage();
         };
         modalDynamicButtons.appendChild(button);
     });
-    modalDynamicButtons.style.display = 'flex'; // Make sure the container is visible
+    modalDynamicButtons.style.display = 'flex'; 
     customModal.style.display = "block";
 }
 
@@ -317,7 +300,7 @@ export function generatePlayerSetupFields(count, forNetwork = false) {
     if (!playerCustomizationArea) return;
     playerCustomizationArea.innerHTML = '';
 
-    const maxCustomize = forNetwork ? 1 : count; // For network, only customize self (P0 initially)
+    const maxCustomize = forNetwork ? 1 : count; 
 
     for (let i = 0; i < maxCustomize; i++) {
         const card = document.createElement('div');
@@ -333,7 +316,6 @@ export function generatePlayerSetupFields(count, forNetwork = false) {
         nameInput.value = forNetwork ? `Jugador ${state.myPeerId ? state.myPeerId.slice(-4) : (i+1)}` : `Jugador/a ${i + 1}`;
         nameInput.maxLength = 15;
 
-
         const iconLabel = document.createElement('label');
         iconLabel.htmlFor = `player-icon-${i}`;
         iconLabel.textContent = `Tu Ícono:`;
@@ -345,7 +327,7 @@ export function generatePlayerSetupFields(count, forNetwork = false) {
             option.textContent = icon;
             iconSelect.appendChild(option);
         });
-        iconSelect.value = state.AVAILABLE_ICONS[Math.floor(Math.random() * state.AVAILABLE_ICONS.length)]; // Random default for network player
+        iconSelect.value = state.AVAILABLE_ICONS[Math.floor(Math.random() * state.AVAILABLE_ICONS.length)]; 
 
         const colorLabel = document.createElement('label');
         colorLabel.htmlFor = `player-color-${i}`;
@@ -371,8 +353,6 @@ export function generatePlayerSetupFields(count, forNetwork = false) {
 
 // ---------- SVG BOARD DRAWING FUNCTIONS ----------
 export function drawBoardSVG() {
-    // ... (keep existing drawBoardSVG content, ensure it uses state.numRows, state.numCols etc.)
-    // This function seems okay as is, assuming state.numRows/cols are set correctly before calling.
     if (!gameBoardSVG) return;
     gameBoardSVG.innerHTML = '';
     const svgWidth = (state.numCols - 1) * state.CELL_SIZE + 2 * state.SVG_PADDING;
@@ -423,8 +403,6 @@ export function drawBoardSVG() {
 }
 
 export function drawVisualLineOnBoard(type, r_val, c_val, playerIdx) {
-    // ... (keep existing drawVisualLineOnBoard content)
-    // This function seems okay as is, assuming state.playersData is correctly populated for the game.
     const drawnLinesGroup = document.getElementById('drawn-lines-group');
     if (!drawnLinesGroup) return null;
 
@@ -453,8 +431,6 @@ export function drawVisualLineOnBoard(type, r_val, c_val, playerIdx) {
 }
 
 export function fillBoxOnBoard(br, bc, playerIdx) {
-    // ... (keep existing fillBoxOnBoard content)
-    // This function seems okay as is.
     const filledBoxesGroup = document.getElementById('filled-boxes-group');
     if(!filledBoxesGroup) return null;
 
@@ -502,7 +478,6 @@ export function fillBoxOnBoard(br, bc, playerIdx) {
 }
 
 export function clearBoardForNewGame() {
-    // ... (keep existing clearBoardForNewGame content)
     const linesGroup = document.getElementById('drawn-lines-group');
     const boxesGroup = document.getElementById('filled-boxes-group');
     if (linesGroup) linesGroup.innerHTML = '';
@@ -515,7 +490,6 @@ export function clearBoardForNewGame() {
 }
 
 export function removeVisualLineFromBoard(type, r_val, c_val) {
-    // ... (keep existing content)
     const lineElement = document.getElementById(`line-${type}-${r_val}-${c_val}`);
     if (lineElement && lineElement.parentNode) {
         lineElement.style.opacity = '0';
@@ -528,7 +502,6 @@ export function removeVisualLineFromBoard(type, r_val, c_val) {
 }
 
 export function removeFilledBoxFromBoard(br, bc) {
-    // ... (keep existing content)
     const boxElement = document.getElementById(`box-${br}-${bc}`);
     const textElement = document.getElementById(`boxtext-${br}-${bc}`);
     if (boxElement && boxElement.parentNode) {
@@ -541,7 +514,6 @@ export function removeFilledBoxFromBoard(br, bc) {
         setTimeout(() => { if (textElement.parentNode) textElement.remove(); }, 300);
     }
 }
-
 
 // ---------- NETWORK UI FUNCTIONS (QR, Info Area) ----------
 export function displayQRCode(gameLink, displayId, message = "Compartí este enlace o ID para que se unan a tu sala:") {
@@ -557,10 +529,15 @@ export function displayQRCode(gameLink, displayId, message = "Compartí este enl
         return;
     }
 
+    console.log("[UI] displayQRCode: Making network info area visible and populating QR code");
+    
+    // CRITICAL: Ensure the area is visible FIRST
     networkInfoArea.classList.remove('hidden');
     networkInfoTitle.textContent = "¡Sala Creada!";
     networkInfoText.textContent = `${message} ID: ${displayId}`;
 
+    // Force a style recalculation to ensure visibility
+    if (networkInfoArea) networkInfoArea.offsetHeight; // Trigger reflow
 
     qrCodeContainer.innerHTML = ''; // Clear previous QR
     const canvas = document.createElement('canvas');
@@ -572,6 +549,7 @@ export function displayQRCode(gameLink, displayId, message = "Compartí este enl
             foreground: '#A020F0', background: '#FFF8FB' // Purple theme
         });
         qrCodeContainer.appendChild(canvas);
+        console.log("[UI] QR code generated and added to container");
     } catch(e) {
         console.error("[UI] Error generating QR code:", e);
         qrCodeContainer.textContent = "Error QR.";
@@ -589,6 +567,12 @@ export function displayQRCode(gameLink, displayId, message = "Compartí este enl
                 updateMessageArea('Error al copiar enlace.', true, 2000);
             });
     };
+
+    // Double-check visibility after setup
+    if (networkInfoArea && networkInfoArea.classList.contains('hidden')) {
+        console.warn("[UI] Network info area was hidden after setup - forcing visible");
+        networkInfoArea.classList.remove('hidden');
+    }
 }
 
 export function hideQRCode() {
@@ -624,17 +608,21 @@ export function updateGameModeUI() {
     if (hostGameButton) hostGameButton.style.display = state.pvpRemoteActive ? 'none' : 'inline-block';
     if (playRandomButton) playRandomButton.style.display = state.pvpRemoteActive ? 'none' : 'inline-block';
 
+    // CRITICAL FIX: Ensure QR code area is visible when hosting and waiting for players
+    if (state.pvpRemoteActive && state.networkRoomData.isRoomLeader && state.networkRoomData.roomId && 
+        (state.networkRoomData.roomState === 'waiting_for_players' || state.networkRoomData.roomState === 'creating_random_match_room')) {
+        // Host is waiting for players - ensure QR code area is visible
+        if (networkInfoArea && networkInfoArea.classList.contains('hidden')) {
+            console.log("[UI] updateGameModeUI: Ensuring QR code area is visible for host waiting for players");
+            networkInfoArea.classList.remove('hidden');
+        }
+    }
 
     // Cancel matchmaking button visibility
     if (cancelMatchmakingButton) {
-        // Show if pvpRemoteActive (meaning a network process started),
-        // AND not yet in a lobby (roomState not 'lobby' or 'in_game' etc.),
-        // AND not yet successfully paired/connected (e.g. room.gamePaired is false or similar)
-        // This needs to be refined based on actual matchmaking flow.
-        // For now, a simple check: if "Play Random" was clicked and we are not in a lobby yet.
         const isMatchmaking = state.pvpRemoteActive &&
-                              state.networkRoomData.roomState === 'seeking_match' || // A new state for matchmaking
-                             (state.networkRoomData.roomState === 'idle' && playRandomButton.style.display === 'none' && !state.networkRoomData.roomId);
+                                  state.networkRoomData.roomState === 'seeking_match' || 
+                                 (state.networkRoomData.roomState === 'idle' && playRandomButton.style.display === 'none' && !state.networkRoomData.roomId);
 
         cancelMatchmakingButton.style.display = isMatchmaking ? 'inline-block' : 'none';
         if (isMatchmaking && networkInfoArea && networkInfoText) {
@@ -642,19 +630,10 @@ export function updateGameModeUI() {
             networkInfoTitle.textContent = "Buscando Partida...";
             networkInfoText.textContent = "Intentando encontrar oponentes al azar...";
             qrCodeContainer.innerHTML = ''; // No QR for random matchmaking search
-        } else if (!isMatchmaking && networkInfoArea && networkInfoTitle.textContent === "Buscando Partida...") {
-            // If matchmaking was cancelled or finished, hide this specific message.
-            // Other functions (like displayQRCode or updateLobbyUI) will manage networkInfoArea if needed.
-            if (!state.networkRoomData.roomId) hideQRCode(); // Only hide if not in a room yet
-        } else if (state.pvpRemoteActive && state.networkRoomData.isRoomLeader && state.networkRoomData.roomId && (state.networkRoomData.roomState === 'waiting_for_players' || state.networkRoomData.roomState === 'creating_random_match_room')) {
-            // If we are hosting and waiting for players, ensure QR code area is visible.
-            // displayQRCode should have been called by peerConnection.js. This just ensures visibility.
-            if (networkInfoArea) networkInfoArea.classList.remove('hidden');
+        } else if (!isMatchmaking && networkInfoArea && networkInfoTitle && networkInfoTitle.textContent === "Buscando Partida...") {
+            if (!state.networkRoomData.roomId) hideQRCode(); 
         } else if (!state.pvpRemoteActive || (!state.networkRoomData.roomId && !isMatchmaking)) {
-            // If matchmaking was cancelled or finished, hide this specific message.
-            // Other functions (like displayQRCode or updateLobbyUI) will manage networkInfoArea if needed.
-            // If not in a room and not matchmaking, hide QR code.
-            if (networkInfoArea && networkInfoTitle.textContent !== "¡Sala Creada!") { // Don't hide if it's actively showing a created room ID
+            if (networkInfoArea && networkInfoTitle && networkInfoTitle.textContent !== "¡Sala Creada!") {
                  hideQRCode();
             }
         }
@@ -663,11 +642,10 @@ export function updateGameModeUI() {
     if (undoBtn) undoBtn.disabled = state.pvpRemoteActive || !state.lastMoveForUndo;
 }
 
-
 // Initial call to set up player fields for local game as default
 document.addEventListener('DOMContentLoaded', () => {
     if(numPlayersInput && playerCustomizationArea && !state.pvpRemoteActive) {
         generatePlayerSetupFields(parseInt(numPlayersInput.value || "2"));
     }
-    updateGameModeUI(); // Initial UI state
+    updateGameModeUI(); 
 });
