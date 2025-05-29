@@ -57,7 +57,7 @@ const peerJsCallbacks = {
 
                 if (!state.networkRoomData || !state.networkRoomData.players || !state.networkRoomData.players[0]) {
                     console.error('[PeerConn] Global onPeerOpen Error: networkRoomData or players array/players[0] not initialized for host!');
-                    ui.showModalMessage("Error crítico al crear la sala: Faltan datos del anfitrión (P0G-4).");
+                    ui.showModalMessage("Error crítico al crear la sala: Faltan datos del anfitrión (P0G-5).");
                     if (state.networkRoomData._setupErrorCallback) {
                         state.networkRoomData._setupErrorCallback(new Error("networkRoomData or players array/players[0] not initialized for host in global onPeerOpen"));
                         delete state.networkRoomData._setupCompleteCallback;
@@ -346,10 +346,9 @@ function handleLeaderDataReception(data, fromPeerId) {
             const newPlayerId = state.networkRoomData.players.length; 
 
             const newPlayer = {
-                // Explicitly use fields from data.playerData as suggested
                 name: data.playerData.name,
                 icon: data.playerData.icon,
-                color: data.playerData.color, // Make sure this uses the client's sent color
+                color: data.playerData.color, 
                 id: newPlayerId,
                 peerId: fromPeerId,
                 isReady: false,
@@ -402,11 +401,15 @@ function handleLeaderDataReception(data, fromPeerId) {
             }
             const movingPlayer = state.networkRoomData.players.find(p => p.peerId === fromPeerId);
             if (movingPlayer && movingPlayer.id === state.currentPlayerIndex) {
-                if(typeof state.incrementTurnCounter === 'function') state.incrementTurnCounter(); 
+                if(typeof state.incrementTurnCounter === 'function') {
+                     state.incrementTurnCounter(); 
+                } else {
+                    console.error("state.incrementTurnCounter is not a function in handleLeaderDataReception");
+                }
                 
                 const boxesBefore = state.filledBoxesCount;
                 gameLogic.processMove(data.move.type, data.move.r, data.move.c, movingPlayer.id, false, true); 
-                const boxesCompletedThisTurn = state.filledBoxesCount - boxesBefore; // Authoritative calculation
+                const boxesCompletedThisTurn = state.filledBoxesCount - boxesBefore; 
                 
                 broadcastToRoom({
                     type: MSG_TYPE.GAME_MOVE,
@@ -416,7 +419,6 @@ function handleLeaderDataReception(data, fromPeerId) {
                     updatedScores: state.playersData.map(p => ({id: p.id, score: p.score})),
                 });
 
-                // Update leader's own board clickability
                 const isStillLeaderTurn = state.currentPlayerIndex === state.networkRoomData.myPlayerIdInRoom;
                 ui.setBoardClickable(isStillLeaderTurn && state.gameActive);
 
@@ -436,8 +438,6 @@ function handleLeaderDataReception(data, fromPeerId) {
 }
 
 function handleClientDataReception(data, fromLeaderPeerId) {
-    // This function remains largely the same as in Turn 46 / your last working version
-    // Ensure it correctly processes GAME_MOVE messages from the leader.
     if (fromLeaderPeerId !== state.networkRoomData.leaderPeerId) {
         console.warn(`[PeerConn C] Data from non-leader peer ${fromLeaderPeerId}. Ignored.`);
         return;
@@ -462,7 +462,7 @@ function handleClientDataReception(data, fromLeaderPeerId) {
                             ...myDataFromServer, 
                             name: myLocalInitialData.name, 
                             icon: myLocalInitialData.icon,
-                            color: myLocalInitialData.color, // Ensure client uses their customized color
+                            color: myLocalInitialData.color, 
                         };
                     }
                     return p;
@@ -579,9 +579,9 @@ function handleClientDataReception(data, fromLeaderPeerId) {
 }
 
 
-export function ensurePeerInitialized(customOnSuccess, customOnError) {
-    const onSuccessThisCall = (typeof customOnSuccess === 'function') ? customOnSuccess : null;
-    const onErrorThisCall = (typeof customOnError === 'function') ? customOnError : null;
+export function ensurePeerInitialized(callbacks = {}) { // Expect an object for callbacks
+    const onSuccessThisCall = (typeof callbacks.onPeerOpen === 'function') ? callbacks.onPeerOpen : null;
+    const onErrorThisCall = (typeof callbacks.onError === 'function') ? callbacks.onError : null;
 
     const existingPeer = window.peerJsMultiplayer?.getPeer();
     if (existingPeer && !existingPeer.destroyed) {
@@ -678,11 +678,11 @@ export function hostNewRoom(hostPlayerData, gameSettings, isRandomMatchHost = fa
         
         ui.showModalMessage("Creando sala de juego...");
 
-        ensurePeerInitialized(
-            (hostPeerId) => { 
+        ensurePeerInitialized({ // Pass callbacks as an object
+            onPeerOpen: (hostPeerId) => { 
                 console.log(`[PeerConn] hostNewRoom's ensurePeerInitialized customOnSuccess for PeerID: ${hostPeerId}. Global onPeerOpen is expected to handle full setup and promise resolution.`);
             },
-            (err) => { 
+            onError: (err) => { 
                 console.error("[PeerConn] Error in hostNewRoom's ensurePeerInitialized customOnError call:", err);
                 ui.hideModalMessage();
                 if (state.networkRoomData?._setupErrorCallback) {
@@ -696,7 +696,7 @@ export function hostNewRoom(hostPlayerData, gameSettings, isRandomMatchHost = fa
                 state.setPvpRemoteActive(false);
                 ui.showSetupScreen();
             }
-        );
+        });
     });
 }
 
@@ -718,22 +718,22 @@ export function joinRoomById(leaderPeerIdToJoin, joinerPlayerData) {
     });
     ui.showModalMessage(`Intentando conectar a la sala ${state.CAJITAS_PEER_ID_PREFIX}${leaderPeerIdToJoin}...`);
 
-    ensurePeerInitialized(
-        (myPeerId) => { 
+    ensurePeerInitialized({ // Pass callbacks as an object
+        onPeerOpen: (myPeerId) => { 
             console.log(`[PeerConn] joinRoomById's ensurePeerInitialized customOnSuccess for PeerID: ${myPeerId}. Global onPeerOpen will handle connection attempt.`);
             if (state.networkRoomData.players && state.networkRoomData.players[0] && state.networkRoomData.players[0].peerId === null) {
                 state.networkRoomData.players[0].peerId = myPeerId;
                 state.setNetworkRoomData({ players: [...state.networkRoomData.players] });
             }
         },
-        (err) => { 
+        onError: (err) => { 
             ui.hideModalMessage();
             peerJsCallbacks.onError(err); 
             state.resetNetworkRoomData();
             state.setPvpRemoteActive(false);
             ui.showSetupScreen();
         }
-    );
+    });
 }
 
 export function leaveRoom() {
@@ -765,22 +765,19 @@ export function handleLeaderLocalMove(moveDetails, boxesCompletedCount) {
          console.warn("[PeerConn] handleLeaderLocalMove called, but not leader. Ignoring.");
          return;
     }
-    // Allow broadcasting even if gameActive is false, if it's the move that just ended the game.
     console.log(`[PeerConn] handleLeaderLocalMove: Leader (P${state.networkRoomData.myPlayerIdInRoom}) made move. Broadcasting. GameActive: ${state.gameActive}, RoomState: ${state.networkRoomData.roomState}`);
     
-    // Ensure turn counter is incremented by the leader for their own move
     if(typeof state.incrementTurnCounter === 'function') {
         state.incrementTurnCounter(); 
     } else {
-        console.error("[PeerConn] FATAL: state.incrementTurnCounter is not a function!");
-        // This would be a critical error, but the user confirmed it was added to state.js
+        console.error("[PeerConn] FATAL: state.incrementTurnCounter is not a function during leader's local move!");
+        return; // Cannot proceed without turn counter
     }
-
 
     const gameMoveMessage = {
         type: MSG_TYPE.GAME_MOVE,
         move: { 
-            ...moveDetails, // type, r, c
+            ...moveDetails, 
             playerIndex: state.networkRoomData.myPlayerIdInRoom, 
             boxesJustCompleted: boxesCompletedCount 
         },
@@ -793,7 +790,6 @@ export function handleLeaderLocalMove(moveDetails, boxesCompletedCount) {
     broadcastToRoom(gameMoveMessage);
 
     if (!state.gameActive && state.networkRoomData.roomState !== 'game_over') { 
-        // This condition means the game just ended with this move.
         console.log("[PeerConn] Game ended with leader's move. Broadcasting GAME_OVER_ANNOUNCEMENT.");
         state.setNetworkRoomData({ roomState: 'game_over' }); 
         broadcastToRoom({
@@ -913,7 +909,6 @@ export function sendStartGameRequest() {
 
 export function sendGameMoveToLeader(type, r, c, boxesCompletedCount) {
     if (state.networkRoomData.isRoomLeader) {
-        // This should ideally not be reached if gameLogic.handleLineClickWrapper is correct
         console.error("Leader logic error: sendGameMoveToLeader called. Leader should use handleLeaderLocalMove.");
         return; 
     }
