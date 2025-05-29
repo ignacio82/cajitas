@@ -110,12 +110,11 @@ export function setMyPeerId(id) { myPeerId = id; }
 // Network Room Data specific setters
 export function setNetworkRoomData(data) {
     networkRoomData = { ...networkRoomData, ...data };
-    if (data.players) { // If players array is updated, ensure local playersData for game rendering is also updated.
-        // This assumes the structure in networkRoomData.players is compatible with what playersData expects.
-        // The leader should be the one primarily setting this and broadcasting.
-        // Clients receive it and update their local game state.
-        // setPlayersData(networkRoomData.players); // NO, playersData should be set *explicitly* for game start.
-                                                // networkRoomData.players is for lobby and sync.
+    if (data.players) { 
+        // This was commented out for a reason:
+        // playersData should be set *explicitly* for game start from networkRoomData.players.
+        // networkRoomData.players is for lobby info and general sync during lobby.
+        // setPlayersData(networkRoomData.players); 
     }
 }
 
@@ -135,21 +134,14 @@ export function resetNetworkRoomData() {
 }
 
 export function addPlayerToNetworkRoom(player) {
-    // player: { id: number, peerId: string, name: string, icon: string, color: string, isReady: boolean, isConnected: boolean, score: number }
-    // Ensure no duplicate peerId
     if (!networkRoomData.players.find(p => p.peerId === player.peerId)) {
         networkRoomData.players.push(player);
     }
-    // Sort by ID to maintain order if necessary, though ID assignment should be sequential by leader
     networkRoomData.players.sort((a, b) => a.id - b.id);
 }
 
 export function removePlayerFromNetworkRoom(peerId) {
     networkRoomData.players = networkRoomData.players.filter(p => p.peerId !== peerId);
-    // Consider re-assigning IDs if players leave mid-lobby, though simpler if IDs are stable once assigned.
-    // For now, IDs are positions. If P1 leaves from [P0, P1, P2], list becomes [P0, P2].
-    // This means player IDs might not be contiguous after someone leaves.
-    // Simpler: Leader re-assigns IDs and sends full player list update.
 }
 
 export function updatePlayerInNetworkRoom(peerId, updates) {
@@ -159,12 +151,26 @@ export function updatePlayerInNetworkRoom(peerId, updates) {
     }
 }
 
+/**
+ * Increments the network game turn counter.
+ * This is typically called by the leader.
+ */
+export function incrementTurnCounter() {
+    if (networkRoomData) { // Ensure networkRoomData exists
+        networkRoomData.turnCounter++;
+        console.log(`[State] Turn counter incremented to: ${networkRoomData.turnCounter}`);
+    } else {
+        console.warn("[State] incrementTurnCounter called but networkRoomData is not initialized.");
+    }
+}
+
+
 // Reset functions
 export function resetScores() {
     if (playersData) {
         playersData.forEach(p => p.score = 0);
     }
-    if (networkRoomData.players) { // Also reset scores in the network room data if active
+    if (networkRoomData.players) { 
         networkRoomData.players.forEach(p => p.score = 0);
     }
 }
@@ -175,51 +181,39 @@ export function resetGameFlowState(isNetworkReset = false) {
     filledBoxesCount = 0;
     lastMoveForUndo = null;
 
-    initializeBoardState(); // Clears lines, boxes
+    initializeBoardState(); 
 
     if (isNetworkReset) {
-        // For network games, player data (names, icons, colors) is managed by networkRoomData.
-        // Scores within playersData should be reset if that's the source for UI.
-        resetScores(); // This will also hit networkRoomData.players scores.
+        resetScores(); 
     } else {
-        // For local games, keep player definitions, just reset scores
         resetScores();
     }
 
-    if (pvpRemoteActive) {
+    if (pvpRemoteActive && networkRoomData) { // Ensure networkRoomData exists
         networkRoomData.turnCounter = 0;
-        // Room state might transition, e.g., to 'game_over' or back to 'lobby'
-        // This specific reset is for game flow, not necessarily full room state.
     }
 }
 
 export function resetFullLocalStateForNewGame() {
-    // Resets almost everything for returning to the main setup screen
-    // numRows = 4; // Keep last used settings or reset to default? For now, keep.
-    // numCols = 4;
-    // playersData = []; // Cleared when new setup happens
-    
     currentPlayerIndex = 0;
     horizontalLines = [];
     verticalLines = [];
     boxes = [];
-    totalPossibleBoxes = (numRows - 1) * (numCols - 1); // Recalculate
+    totalPossibleBoxes = (numRows - 1) * (numCols - 1); 
     filledBoxesCount = 0;
     gameActive = false;
     lastMoveForUndo = null;
 
-    resetNetworkRoomData(); // Full reset of network state
-    // myPeerId might persist for the session unless PeerJS is fully closed.
-    pvpRemoteActive = false; // Crucial
+    resetNetworkRoomData(); 
+    pvpRemoteActive = false; 
 }
-
 
 // Helper to get current player's data
 export function getCurrentPlayer() {
     if (gameActive && playersData && playersData[currentPlayerIndex]) {
         return playersData[currentPlayerIndex];
     }
-    return null; // Or a default player object if appropriate
+    return null; 
 }
 
 // Helper to update a specific player's score IN THE ACTIVE GAME (playersData)
@@ -228,9 +222,7 @@ export function updatePlayerScoreInGame(playerIndex, newBoxesCount) {
         playersData[playerIndex].score = (playersData[playerIndex].score || 0) + newBoxesCount;
     }
 
-    // If it's a network game, the leader also needs to update this in networkRoomData.players
-    // and broadcast it. This function itself doesn't broadcast.
-    if (pvpRemoteActive && networkRoomData.isRoomLeader) {
+    if (pvpRemoteActive && networkRoomData.isRoomLeader && networkRoomData.players) {
         const playerToUpdate = networkRoomData.players.find(p => p.id === playerIndex);
         if (playerToUpdate) {
             playerToUpdate.score = (playerToUpdate.score || 0) + newBoxesCount;
@@ -238,7 +230,6 @@ export function updatePlayerScoreInGame(playerIndex, newBoxesCount) {
     }
 }
 
-// This is for console logging and debugging state easily
 export function logCurrentState() {
     console.log("--- CURRENT GAME STATE ---");
     console.log("Dimensions:", `${numRows}x${numCols}`, "Total Boxes:", totalPossibleBoxes);
@@ -246,9 +237,6 @@ export function logCurrentState() {
     console.log("Current Player Index:", currentPlayerIndex);
     console.log("Game Active:", gameActive);
     console.log("Filled Boxes:", filledBoxesCount);
-    // console.log("H-Lines:", horizontalLines);
-    // console.log("V-Lines:", verticalLines);
-    // console.log("Boxes:", boxes);
     console.log("Undo Move:", lastMoveForUndo ? "{...}" : null);
     console.log("--- NETWORK STATE ---");
     console.log("PVP Remote Active:", pvpRemoteActive);
@@ -257,5 +245,4 @@ export function logCurrentState() {
     console.log("------------------------");
 }
 
-// Initialize totalPossibleBoxes based on default numRows/numCols
 totalPossibleBoxes = (numRows - 1) * (numCols - 1);
