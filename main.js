@@ -6,7 +6,7 @@ console.log("[Main - Pre-DOM] Initial window.location.search:", window.location.
 console.log("[Main - Pre-DOM] Initial URLSearchParams:", new URLSearchParams(window.location.search));
 
 import * as state from './state.js';
-import *ui from './ui.js';
+import * as ui from './ui.js';
 import * as gameLogic from './gameLogic.js';
 import * as sound from './sound.js';
 import * as peerConnection from './peerConnection.js';
