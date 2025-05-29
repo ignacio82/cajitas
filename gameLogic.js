@@ -1,4 +1,4 @@
-// gameLogic.js - MODIFIED to use myPlayerIdInRemoteGame for sending moves
+// gameLogic.js - FIXED with missing exported functions
 
 import * as state from './state.js';
 import * as ui from './ui.js';
@@ -369,8 +369,13 @@ export function applyRemoteMove(moveData) {
     }
 }
 
+// FIXED: Added missing applyFullState export
 export function applyFullState(remoteGameState) {
-    if (!state.pvpRemoteActive) return;
+    if (!state.pvpRemoteActive) {
+        console.warn("[GameLogic applyFullState] Not in PVP remote mode, ignoring full state update");
+        return;
+    }
+    
     console.log("[GameLogic applyFullState] Applying full remote state. My local Player ID:", state.myPlayerIdInRemoteGame, "Remote state (playersData only):", JSON.stringify(remoteGameState.playersData));
 
     state.setGameDimensions(remoteGameState.numRows, remoteGameState.numCols);
@@ -445,6 +450,16 @@ export function applyFullState(remoteGameState) {
     }
 }
 
+// FIXED: Added missing endGameAbruptly export
+export function endGameAbruptly() {
+    console.warn("[GameLogic] endGameAbruptly called.");
+    state.setGameActive(false);
+    ui.updateMessageArea("El juego terminó inesperadamente.", true);
+    ui.setBoardClickable(false);
+    if (ui.undoBtn) ui.undoBtn.disabled = true;
+    state.setLastMoveForUndo(null);
+}
+
 function findLineOwner(r, c, type, boxesState) {
     const bState = boxesState || state.boxes; 
     let ownerId = state.playersData[0]?.id ?? 0; // Default to first player
@@ -461,11 +476,4 @@ function findLineOwner(r, c, type, boxesState) {
         return state.playersData[0]?.id ?? 0;
     }
     return ownerId;
-}
-
-export function endGameAbruptly() {
-    console.warn("[GameLogic] endGameAbruptly called.");
-    state.setGameActive(false);
-    ui.updateMessageArea("El juego terminó inesperadamente.", true);
-    ui.setBoardClickable(false);
 }
