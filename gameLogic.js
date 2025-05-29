@@ -1,7 +1,7 @@
 // gameLogic.js
 
 import * as state from './state.js';
-import * as ui from './ui.js'; // Fixed import statement
+import * as ui from './ui.js';
 import * as peerConnection from './peerConnection.js'; // To send moves if client
 import * as sound from './sound.js'; // For sound effects
 
@@ -601,3 +601,4 @@ export function endGameAbruptly() {
         // Consider showing a modal or specific UI state
     }
 }
+// Removed extra closing brace from here
