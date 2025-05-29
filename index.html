@@ -16,7 +16,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=5"> <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <link rel="stylesheet" href="style.css?v=5">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -39,16 +40,42 @@
             </div>
 
             <div>
-                <label for="num-players-input" class="block text-sm font-medium text-gray-700">Jugadores Locales (2-4):</label>
+                <label for="game-mode-select" class="block text-sm font-medium text-gray-700">Modo de Juego:</label>
+                <select id="game-mode-select" name="game-mode-select" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm">
+                    <option value="local" selected>👤 Jugadores Humanos (Local)</option>
+                    <option value="vs-cpu">👤 vs 🤖 Computadora (Local)</option>
+                </select>
+            </div>
+
+            <div id="local-players-config-section"> {/* Renamed for clarity, was num-players-input container */}
+                <label for="num-players-input" class="block text-sm font-medium text-gray-700">Jugadores Humanos (2-4):</label>
                 <input type="number" id="num-players-input" name="num-players-input" value="2" min="2" max="4" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm">
             </div>
 
-            <div id="player-customization-area" class="mt-4 space-y-3">
+            <div id="cpu-game-section" class="hidden space-y-4">
+                <div>
+                    <label for="human-players-cpu-mode-input" class="block text-sm font-medium text-gray-700">Nº de Humanos (1-3):</label>
+                    <input type="number" id="human-players-cpu-mode-input" name="human-players-cpu-mode-input" value="1" min="1" max="3" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm">
+                </div>
+                <div>
+                    <label for="total-players-cpu-mode-input" class="block text-sm font-medium text-gray-700">Nº Total de Jugadores (2-4, incl. CPU):</label>
+                    <input type="number" id="total-players-cpu-mode-input" name="total-players-cpu-mode-input" value="2" min="2" max="4" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm">
+                </div>
+                <div>
+                    <label for="cpu-difficulty-select" class="block text-sm font-medium text-gray-700">Dificultad de la CPU:</label>
+                    <select id="cpu-difficulty-select" name="cpu-difficulty-select" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm">
+                        <option value="EASY">😊 Fácil</option>
+                        <option value="MEDIUM" selected>🤔 Medio</option>
+                        <option value="HARD">🤖 Difícil</option>
+                    </select>
+                </div>
             </div>
 
+            <div id="player-customization-area" class="mt-4 space-y-3">
+                </div>
+
             <button id="start-game-btn" class="btn-primary">
-                ¡Empezar Juego Local! ✨
-            </button>
+                ¡Empezar Juego! ✨ </button>
 
             <div class="mt-6 pt-4 border-t border-pink-200">
                 <h2 class="text-xl font-semibold text-center text-purple-700 mb-2">Jugar en Red 🌐</h2>
@@ -67,7 +94,9 @@
                     <button id="play-random-cajitas-btn" class="network-btn">Unirse a Sala al Azar 🎲</button>
                 </div>
             </div>
-        </div> <div id="network-info-area" class="network-info-area hidden mt-4">
+        </div>
+
+        <div id="network-info-area" class="network-info-area hidden mt-4">
             <h3 id="network-info-title">Juego Remoto Iniciado</h3>
             <div id="qr-code-container" class="qr-code-container">
             </div>
@@ -102,7 +131,8 @@
         <div id="game-area" class="hidden">
             <div id="info-panel" class="mb-4 p-3 bg-pink-50 rounded-lg shadow">
                 <div id="player-turn" class="text-xl font-bold text-center mb-2"></div>
-                <div id="scores" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-center"> </div>
+                <div id="scores" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-center">
+                    </div>
             </div>
 
             <div class="aspect-square w-full max-w-xl mx-auto bg-purple-100 rounded-md overflow-hidden shadow-inner">
@@ -118,7 +148,7 @@
                 <button id="reset-game-btn" class="btn-accent">
                     Juego Nuevo 💖
                 </button>
-                </div>
+            </div>
         </div>
     </div>
 
@@ -130,5 +160,8 @@
         </div>
     </div>
 
-    <script src="peerjs-multiplayer.js?v=4"></script> <script type="module" src="main.js?v=4"></script> </body>
+    <script src="peerjs-multiplayer.js?v=4"></script>
+    <script type="module" src="cpu.js?v=1"></script> {/* Added cpu.js */}
+    <script type="module" src="main.js?v=4"></script>
+</body>
 </html>
