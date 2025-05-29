@@ -57,7 +57,7 @@ const peerJsCallbacks = {
 
                 if (!state.networkRoomData || !state.networkRoomData.players || !state.networkRoomData.players[0]) {
                     console.error('[PeerConn] Global onPeerOpen Error: networkRoomData or players array/players[0] not initialized for host!');
-                    ui.showModalMessage("Error crítico al crear la sala: Faltan datos del anfitrión (P0G-3).");
+                    ui.showModalMessage("Error crítico al crear la sala: Faltan datos del anfitrión (P0G-4).");
                     if (state.networkRoomData._setupErrorCallback) {
                         state.networkRoomData._setupErrorCallback(new Error("networkRoomData or players array/players[0] not initialized for host in global onPeerOpen"));
                         delete state.networkRoomData._setupCompleteCallback;
@@ -346,7 +346,10 @@ function handleLeaderDataReception(data, fromPeerId) {
             const newPlayerId = state.networkRoomData.players.length; 
 
             const newPlayer = {
-                ...data.playerData, 
+                // Explicitly use fields from data.playerData as suggested
+                name: data.playerData.name,
+                icon: data.playerData.icon,
+                color: data.playerData.color, // Make sure this uses the client's sent color
                 id: newPlayerId,
                 peerId: fromPeerId,
                 isReady: false,
@@ -388,7 +391,7 @@ function handleLeaderDataReception(data, fromPeerId) {
             }
             break;
 
-        case MSG_TYPE.GAME_MOVE: // This is when a CLIENT sends a move to the LEADER
+        case MSG_TYPE.GAME_MOVE: 
             if (!connections.has(fromPeerId)) { 
                 console.warn(`[PeerConn L] GAME_MOVE from peer ${fromPeerId} not in active connections map. Ignored.`);
                 return;
@@ -399,20 +402,24 @@ function handleLeaderDataReception(data, fromPeerId) {
             }
             const movingPlayer = state.networkRoomData.players.find(p => p.peerId === fromPeerId);
             if (movingPlayer && movingPlayer.id === state.currentPlayerIndex) {
-                state.incrementTurnCounter(); 
-                // Leader processes the client's move authoritatively
-                gameLogic.processMove(data.move.type, data.move.r, data.move.c, movingPlayer.id, false, true); 
+                if(typeof state.incrementTurnCounter === 'function') state.incrementTurnCounter(); 
                 
-                // Broadcast the outcome of the processed move
+                const boxesBefore = state.filledBoxesCount;
+                gameLogic.processMove(data.move.type, data.move.r, data.move.c, movingPlayer.id, false, true); 
+                const boxesCompletedThisTurn = state.filledBoxesCount - boxesBefore; // Authoritative calculation
+                
                 broadcastToRoom({
                     type: MSG_TYPE.GAME_MOVE,
-                    move: { ...data.move, playerIndex: movingPlayer.id, boxesJustCompleted: data.move.boxesJustCompleted }, 
+                    move: { ...data.move, playerIndex: movingPlayer.id, boxesJustCompleted: boxesCompletedThisTurn }, 
                     turnCounter: state.networkRoomData.turnCounter, 
-                    nextPlayerIndex: state.currentPlayerIndex, // Updated by processMove
+                    nextPlayerIndex: state.currentPlayerIndex, 
                     updatedScores: state.playersData.map(p => ({id: p.id, score: p.score})),
                 });
 
-                // Check if this client's move ended the game
+                // Update leader's own board clickability
+                const isStillLeaderTurn = state.currentPlayerIndex === state.networkRoomData.myPlayerIdInRoom;
+                ui.setBoardClickable(isStillLeaderTurn && state.gameActive);
+
                 if (!state.gameActive && state.networkRoomData.roomState !== 'game_over') { 
                     state.setNetworkRoomData({ roomState: 'game_over' });
                     broadcastToRoom({
@@ -429,6 +436,8 @@ function handleLeaderDataReception(data, fromPeerId) {
 }
 
 function handleClientDataReception(data, fromLeaderPeerId) {
+    // This function remains largely the same as in Turn 46 / your last working version
+    // Ensure it correctly processes GAME_MOVE messages from the leader.
     if (fromLeaderPeerId !== state.networkRoomData.leaderPeerId) {
         console.warn(`[PeerConn C] Data from non-leader peer ${fromLeaderPeerId}. Ignored.`);
         return;
@@ -453,7 +462,7 @@ function handleClientDataReception(data, fromLeaderPeerId) {
                             ...myDataFromServer, 
                             name: myLocalInitialData.name, 
                             icon: myLocalInitialData.icon,
-                            color: myLocalInitialData.color,
+                            color: myLocalInitialData.color, // Ensure client uses their customized color
                         };
                     }
                     return p;
@@ -569,20 +578,6 @@ function handleClientDataReception(data, fromLeaderPeerId) {
     }
 }
 
-function setupConnectionEventHandlers(conn, isToLeaderConnection = false) {
-    conn.on('open', () => {
-        peerJsCallbacks.onConnectionOpen(conn.peer); 
-    });
-    conn.on('data', (data) => {
-        peerJsCallbacks.onDataReceived(data, conn.peer); 
-    });
-    conn.on('close', () => {
-        peerJsCallbacks.onConnectionClose(conn.peer); 
-    });
-    conn.on('error', (err) => {
-        peerJsCallbacks.onError(err, conn.peer); 
-    });
-}
 
 export function ensurePeerInitialized(customOnSuccess, customOnError) {
     const onSuccessThisCall = (typeof customOnSuccess === 'function') ? customOnSuccess : null;
@@ -593,7 +588,10 @@ export function ensurePeerInitialized(customOnSuccess, customOnError) {
         const currentPeerId = window.peerJsMultiplayer.getLocalId();
         console.log("[PeerConn] ensurePeerInitialized: PeerJS already initialized and not destroyed. My ID:", currentPeerId);
         if (currentPeerId) {
-            if (onSuccessThisCall) onSuccessThisCall(currentPeerId); 
+            if (onSuccessThisCall) {
+                console.log("[PeerConn] ensurePeerInitialized: Existing peer already open, calling onSuccessThisCall.");
+                onSuccessThisCall(currentPeerId); 
+            }
         } else {
             console.warn("[PeerConn] ensurePeerInitialized: Peer object exists but ID is null. PeerJS might be connecting. Setting up temp listeners for this call.");
             const tempPeerOpen = (id) => {
@@ -624,7 +622,7 @@ export function ensurePeerInitialized(customOnSuccess, customOnError) {
                     console.log("[PeerConn] ensurePeerInitialized: initDynamicCallbacks.onPeerOpen calling onSuccessThisCall.");
                     onSuccessThisCall(id); 
                 } else {
-                    console.log("[PeerConn] ensurePeerInitialized: initDynamicCallbacks.onPeerOpen - onSuccessThisCall is null/undefined.");
+                    console.log("[PeerConn] ensurePeerInitialized: initDynamicCallbacks.onPeerOpen - onSuccessThisCall is null/undefined for this init.");
                 }
             },
             onError: (err) => {
@@ -633,7 +631,7 @@ export function ensurePeerInitialized(customOnSuccess, customOnError) {
                      console.log("[PeerConn] ensurePeerInitialized: initDynamicCallbacks.onError calling onErrorThisCall.");
                     onErrorThisCall(err); 
                 } else {
-                    console.log("[PeerConn] ensurePeerInitialized: initDynamicCallbacks.onError - onErrorThisCall is null/undefined.");
+                    console.log("[PeerConn] ensurePeerInitialized: initDynamicCallbacks.onError - onErrorThisCall is null/undefined for this init.");
                 }
             },
             onNewConnection: peerJsCallbacks.onNewConnection,
@@ -682,7 +680,7 @@ export function hostNewRoom(hostPlayerData, gameSettings, isRandomMatchHost = fa
 
         ensurePeerInitialized(
             (hostPeerId) => { 
-                console.log(`[PeerConn] hostNewRoom's ensurePeerInitialized customOnSuccess for PeerID: ${hostPeerId}. Global onPeerOpen expected to handle full setup and promise resolution.`);
+                console.log(`[PeerConn] hostNewRoom's ensurePeerInitialized customOnSuccess for PeerID: ${hostPeerId}. Global onPeerOpen is expected to handle full setup and promise resolution.`);
             },
             (err) => { 
                 console.error("[PeerConn] Error in hostNewRoom's ensurePeerInitialized customOnError call:", err);
@@ -762,22 +760,22 @@ export function leaveRoom() {
     state.setGameActive(false);
 }
 
-// NEW FUNCTION
 export function handleLeaderLocalMove(moveDetails, boxesCompletedCount) {
     if (!state.networkRoomData.isRoomLeader) {
          console.warn("[PeerConn] handleLeaderLocalMove called, but not leader. Ignoring.");
          return;
     }
-    if (!state.gameActive && state.filledBoxesCount < state.totalPossibleBoxes) { // Allow broadcasting game-ending move
-        console.warn(`[PeerConn] handleLeaderLocalMove called, but game not active (or already over). Filled: ${state.filledBoxesCount}/${state.totalPossibleBoxes}. CurrentPlayer: P${state.currentPlayerIndex}`);
-        // If game truly ended, GAME_OVER_ANNOUNCEMENT should cover it.
-        // This check is to prevent broadcasting moves if game has ended due to other reasons.
-        // However, if gameLogic.processMove just set gameActive to false due to THIS move, we should proceed.
-        // The check `!state.gameActive && state.networkRoomData.roomState !== 'game_over'` below handles this.
+    // Allow broadcasting even if gameActive is false, if it's the move that just ended the game.
+    console.log(`[PeerConn] handleLeaderLocalMove: Leader (P${state.networkRoomData.myPlayerIdInRoom}) made move. Broadcasting. GameActive: ${state.gameActive}, RoomState: ${state.networkRoomData.roomState}`);
+    
+    // Ensure turn counter is incremented by the leader for their own move
+    if(typeof state.incrementTurnCounter === 'function') {
+        state.incrementTurnCounter(); 
+    } else {
+        console.error("[PeerConn] FATAL: state.incrementTurnCounter is not a function!");
+        // This would be a critical error, but the user confirmed it was added to state.js
     }
 
-
-    state.incrementTurnCounter(); // Leader increments canonical turn counter
 
     const gameMoveMessage = {
         type: MSG_TYPE.GAME_MOVE,
@@ -794,19 +792,19 @@ export function handleLeaderLocalMove(moveDetails, boxesCompletedCount) {
     console.log("[PeerConn] Broadcasting leader's local move:", gameMoveMessage);
     broadcastToRoom(gameMoveMessage);
 
-    // Check if the game ended with the leader's move
-    // gameLogic.processMove would have updated state.gameActive
     if (!state.gameActive && state.networkRoomData.roomState !== 'game_over') { 
-        console.log("[PeerConn] Game ended with leader's move. Broadcasting GAME_OVER.");
+        // This condition means the game just ended with this move.
+        console.log("[PeerConn] Game ended with leader's move. Broadcasting GAME_OVER_ANNOUNCEMENT.");
         state.setNetworkRoomData({ roomState: 'game_over' }); 
         broadcastToRoom({
             type: MSG_TYPE.GAME_OVER_ANNOUNCEMENT,
             winners: gameLogic.getWinnerData(), 
             scores: state.playersData.map(p => ({id: p.id, name: p.name, score: p.score}))
         });
+    } else if (state.gameActive) {
+        console.log(`[PeerConn] Leader's move processed. Next player is P${state.currentPlayerIndex}.`);
     }
 }
-
 
 function sendDataToLeader(data) {
     if (leaderConnection && leaderConnection.open) {
@@ -915,8 +913,9 @@ export function sendStartGameRequest() {
 
 export function sendGameMoveToLeader(type, r, c, boxesCompletedCount) {
     if (state.networkRoomData.isRoomLeader) {
-        console.error("Leader should not be sending moves to itself via this function.");
-        return; // This was correctly blocking. Problem is leader needs to broadcast its own moves.
+        // This should ideally not be reached if gameLogic.handleLineClickWrapper is correct
+        console.error("Leader logic error: sendGameMoveToLeader called. Leader should use handleLeaderLocalMove.");
+        return; 
     }
     sendDataToLeader({
         type: MSG_TYPE.GAME_MOVE,
