@@ -3,7 +3,7 @@
 import * as state from './state.js';
 import * as ui from './ui.js';
 import * as peerConnection from './peerConnection.js';
-import * as sound from './sound.js';
+import * as sound from './sound.js'; // Ensure sound is imported to use sound.triggerVibration
 
 export function initializeGame(isRemoteGame = false) {
     console.log(`[GameLogic] initializeGame called. Remote: ${isRemoteGame}. Current Player Index (ID) before init: ${state.currentPlayerIndex}`);
@@ -12,16 +12,14 @@ export function initializeGame(isRemoteGame = false) {
         state.setGameDimensions(state.numRows, state.numCols);
     } else {
         // Dimensions are set by leader via GAME_STARTED message, which calls setGameDimensions in state.js
-        // state.setGameDimensions(state.networkRoomData.gameSettings.rows, state.networkRoomData.gameSettings.cols); // This should already be done
         console.log(`[GameLogic] Remote game. Dimensions: ${state.numRows}x${state.numCols}. Total Boxes: ${state.totalPossibleBoxes}`);
     }
 
-    state.resetGameFlowState(isRemoteGame); // This sets currentPlayerIndex to playersData[0].id if playersData is populated
+    state.resetGameFlowState(isRemoteGame); 
     state.setGameActive(true);
     
-    // Ensure currentPlayerIndex is valid after reset, especially if playersData was set by GAME_STARTED
     if (state.playersData.length > 0 && !state.playersData.find(p => p.id === state.currentPlayerIndex)) {
-        state.setCurrentPlayerIndex(state.playersData[0].id); // Default to first player's ID
+        state.setCurrentPlayerIndex(state.playersData[0].id); 
         console.warn(`[GameLogic] initializeGame: currentPlayerIndex was invalid after reset, defaulted to ${state.playersData[0].id}`);
     }
 
@@ -45,6 +43,7 @@ export function initializeGame(isRemoteGame = false) {
     if (undoBtn) undoBtn.disabled = isRemoteGame || !state.lastMoveForUndo;
     const currentPlayerForLog = state.playersData.find(p => p.id === state.currentPlayerIndex);
     console.log(`[GameLogic] Game initialized. Starting Player: ${currentPlayerForLog?.name} (ID: ${state.currentPlayerIndex}). Is My Turn (if remote): ${state.pvpRemoteActive ? (state.networkRoomData.myPlayerIdInRoom === state.currentPlayerIndex) : 'N/A'}`);
+    // Consider a gentle haptic for game start, perhaps handled in main.js where gameStartSound is played.
 }
 
 
@@ -55,19 +54,15 @@ export function resetGame(backToSetupScreen = true) {
 
     if (state.pvpRemoteActive) {
         console.warn("[GameLogic] resetGame called during active PvP. This should ideally be managed by room logic (e.g. leader initiates restart).");
-        // For now, local reset of scores and flow state if called.
         state.resetScores();
         state.resetGameFlowState(true);
         ui.updateScoresDisplay();
-        // Client might need to re-enter lobby state or await leader's instruction.
-        // ui.showLobbyScreen(); // Or similar, depending on desired flow
     } else {
         state.resetScores();
-        state.resetGameFlowState(false); // Resets currentPlayerIndex to first player's ID
+        state.resetGameFlowState(false); 
         if (backToSetupScreen) {
             // main.js handles ui.showSetupScreen()
         } else {
-            // This case is for restarting the same local game configuration
             initializeGame(false);
         }
     }
@@ -102,11 +97,12 @@ function handleLineClickWrapper(event) {
         if (state.networkRoomData.myPlayerIdInRoom !== state.currentPlayerIndex) {
             ui.updateMessageArea("¡Ey! No es tu turno.", true);
             if(sound.errorSound && typeof sound.playSound === 'function') sound.playSound(sound.errorSound, undefined, "16n");
+            if(typeof sound.triggerVibration === 'function') sound.triggerVibration([70, 50, 70]); // Haptic for error/invalid turn
             return;
         }
         
         const boxesBefore = state.filledBoxesCount;
-        let playerIndexForMove = state.networkRoomData.myPlayerIdInRoom; // This is the player's ID
+        let playerIndexForMove = state.networkRoomData.myPlayerIdInRoom; 
 
         if (state.networkRoomData.isRoomLeader) {
             console.log(`[GameLogic] Host (P-ID ${playerIndexForMove}) making an authoritative move: ${type} ${r}-${c}`);
@@ -121,21 +117,13 @@ function handleLineClickWrapper(event) {
             if (!isStillMyTurn && state.gameActive) {
                 const nextPlayer = state.playersData.find(p => p.id === state.currentPlayerIndex);
                 ui.updateMessageArea(`Esperando a ${nextPlayer?.name || 'otro jugador'}...`, false, 0);
-            } else if (!state.gameActive) {
-                // ui.updateMessageArea("Juego terminado.", false, 0); // Winner announcement handles this
             }
-        } else { // Client making a move
+        } else { 
             console.log(`[GameLogic] Client (P-ID ${playerIndexForMove}) making an optimistic move: ${type} ${r}-${c}`);
-            // Client makes an optimistic local update. This might be reverted or confirmed by leader.
-            // For simplicity, we can let client do basic processing, but leader's state is truth.
-            // ui.drawVisualLineOnBoard(type, r, c, playerIndexForMove); // Optimistic draw
-            // For now, let client only send the move and wait for leader's broadcast.
-            // This prevents complex rollback if client's optimistic logic differs.
-            
-            const boxesMadeThisTurn = 0; // Client doesn't calculate score authoritatively from its optimistic move.
+            const boxesMadeThisTurn = 0; 
             peerConnection.sendGameMoveToLeader(type, r, c, boxesMadeThisTurn);
             
-            ui.setBoardClickable(false); // Wait for leader's confirmation
+            ui.setBoardClickable(false); 
             ui.updateMessageArea("Jugada enviada. Esperando al líder...", false, 0);
         }
 
@@ -174,7 +162,11 @@ export function processMove(type, r, c, playerMakingMoveId, isOptimisticUpdate =
     }
 
     const lineElement = ui.drawVisualLineOnBoard(type, r, c, playerMakingMoveId);
-    if(sound.lineSound && typeof sound.playSound === 'function') sound.playSound(sound.lineSound, "C4", "32n");
+    if(sound.lineSound && typeof sound.playSound === 'function') {
+        sound.playSound(sound.lineSound, "C4", "32n");
+        if(typeof sound.triggerVibration === 'function') sound.triggerVibration(50); // Haptic for line draw
+    }
+
 
     const slotId = `slot-${type}-${r}-${c}`;
     const slotElement = document.getElementById(slotId);
@@ -183,7 +175,7 @@ export function processMove(type, r, c, playerMakingMoveId, isOptimisticUpdate =
         slotElement.removeEventListener('click', handleLineClickWrapper);
     }
 
-    if (!state.pvpRemoteActive && !isOptimisticUpdate && !isLeaderProcessing) { // Local game undo logic
+    if (!state.pvpRemoteActive && !isOptimisticUpdate && !isLeaderProcessing) { 
         const boxesPotentiallyAffected = getPotentiallyAffectedBoxes(type, r, c);
         const previousBoxStates = boxesPotentiallyAffected.map(box => ({
             r: box.r, c: box.c, player: state.boxes[box.r]?.[box.c] ?? -1
@@ -206,7 +198,10 @@ export function processMove(type, r, c, playerMakingMoveId, isOptimisticUpdate =
         state.updatePlayerScoreInGame(playerMakingMoveId, boxesCompletedCount);
         state.incrementFilledBoxesCount(boxesCompletedCount);
         ui.updateScoresDisplay();
-        if(sound.boxSound && typeof sound.playSound === 'function') sound.playSound(sound.boxSound, "A5", "16n", Tone.now() + 0.05);
+        if(sound.boxSound && typeof sound.playSound === 'function') {
+            sound.playSound(sound.boxSound, "A5", "16n", Tone.now() + 0.05);
+            if(typeof sound.triggerVibration === 'function') sound.triggerVibration([60, 40, 60]); // Haptic for box completion
+        }
         playerContinues = true;
 
         if (!isOptimisticUpdate) {
@@ -215,20 +210,19 @@ export function processMove(type, r, c, playerMakingMoveId, isOptimisticUpdate =
         }
 
         if (!state.pvpRemoteActive && !isOptimisticUpdate && !isLeaderProcessing) {
-            state.setLastMoveForUndo(null); // Scored, so disable undo for this specific move
+            state.setLastMoveForUndo(null); 
             const undoBtn = document.getElementById('undo-btn');
             if (undoBtn) undoBtn.disabled = true;
         }
     }
 
-    const gameOver = checkGameOver(); // This also sets state.gameActive = false if game is over
+    const gameOver = checkGameOver(); 
 
     if (gameOver) {
         if (!isOptimisticUpdate) {
-            if (!state.pvpRemoteActive) { // Local game
+            if (!state.pvpRemoteActive) { 
                 announceWinner();
             } else if (isLeaderProcessing) {
-                // Leader will trigger GAME_OVER_ANNOUNCEMENT broadcast via peerConnection
                 console.log("[GameLogic processMove] Game over, processed by leader. Broadcast handled by peerConnection.");
             }
         }
@@ -239,18 +233,17 @@ export function processMove(type, r, c, playerMakingMoveId, isOptimisticUpdate =
         return boxesCompletedCount;
     }
 
-    if (!isOptimisticUpdate) { // Authoritative turn change (local game or leader processing)
+    if (!isOptimisticUpdate) { 
         if (!playerContinues) {
-            endTurn(playerMakingMoveId); // Pass the ID of the player whose turn just ended
+            endTurn(playerMakingMoveId); 
         } else {
-            state.setCurrentPlayerIndex(playerMakingMoveId); // Player scored, turn continues for them (their ID)
+            state.setCurrentPlayerIndex(playerMakingMoveId); 
         }
         ui.updatePlayerTurnDisplay();
 
-        if (!state.pvpRemoteActive) { // Local game
+        if (!state.pvpRemoteActive) { 
             ui.setBoardClickable(true);
         }
-        // For remote games, clickability is set by applyRemoteMove or handleLineClickWrapper (for leader)
     }
     return boxesCompletedCount;
 }
@@ -258,13 +251,12 @@ export function processMove(type, r, c, playerMakingMoveId, isOptimisticUpdate =
 function getPotentiallyAffectedBoxes(lineType, lineR, lineC) {
     const affected = [];
     if (lineType === 'h') {
-        if (lineR < state.numRows - 1) affected.push({ r: lineR, c: lineC }); // Box below
-        if (lineR > 0) affected.push({ r: lineR - 1, c: lineC });   // Box above
-    } else { // type === 'v'
-        if (lineC < state.numCols - 1) affected.push({ r: lineR, c: lineC }); // Box to the right
-        if (lineC > 0) affected.push({ r: lineR, c: lineC - 1 });   // Box to the left
+        if (lineR < state.numRows - 1) affected.push({ r: lineR, c: lineC }); 
+        if (lineR > 0) affected.push({ r: lineR - 1, c: lineC });   
+    } else { 
+        if (lineC < state.numCols - 1) affected.push({ r: lineR, c: lineC }); 
+        if (lineC > 0) affected.push({ r: lineR, c: lineC - 1 });   
     }
-    // Filter for valid box coordinates
     return affected.filter(b =>
         b.r >= 0 && b.r < (state.numRows - 1) &&
         b.c >= 0 && b.c < (state.numCols - 1)
@@ -276,14 +268,14 @@ function checkForCompletedBoxes(lineType, lineR, lineC, playerFillingBoxId) {
     const check = (br_idx, bc_idx) => {
         if (br_idx < 0 || br_idx >= state.numRows - 1 || bc_idx < 0 || bc_idx >= state.numCols - 1) return false;
 
-        if (state.boxes[br_idx]?.[bc_idx] === -1 && // Box not already filled
-            state.horizontalLines[br_idx]?.[bc_idx] &&      // Top line
-            state.horizontalLines[br_idx + 1]?.[bc_idx] &&  // Bottom line
-            state.verticalLines[br_idx]?.[bc_idx] &&        // Left line
-            state.verticalLines[br_idx]?.[bc_idx + 1]) {    // Right line
+        if (state.boxes[br_idx]?.[bc_idx] === -1 && 
+            state.horizontalLines[br_idx]?.[bc_idx] &&      
+            state.horizontalLines[br_idx + 1]?.[bc_idx] &&  
+            state.verticalLines[br_idx]?.[bc_idx] &&        
+            state.verticalLines[br_idx]?.[bc_idx + 1]) {    
             
             ui.fillBoxOnBoard(br_idx, bc_idx, playerFillingBoxId);
-            state.boxes[br_idx][bc_idx] = playerFillingBoxId; // Store ID of player who filled it
+            state.boxes[br_idx][bc_idx] = playerFillingBoxId; 
             boxesMadeThisTurn++;
             console.log(`[GameLogic] Box completed at (${br_idx}, ${bc_idx}) by player P-ID ${playerFillingBoxId}`);
             return true;
@@ -292,19 +284,15 @@ function checkForCompletedBoxes(lineType, lineR, lineC, playerFillingBoxId) {
     };
 
     if (lineType === 'h') {
-        check(lineR, lineC);      // Check box below the horizontal line
-        check(lineR - 1, lineC);  // Check box above the horizontal line
-    } else { // type === 'v'
-        check(lineR, lineC);      // Check box to the right of the vertical line
-        check(lineR, lineC - 1);  // Check box to the left of the vertical line
+        check(lineR, lineC);      
+        check(lineR - 1, lineC);  
+    } else { 
+        check(lineR, lineC);      
+        check(lineR, lineC - 1);  
     }
     return boxesMadeThisTurn;
 }
 
-/**
- * Ends the current player's turn and sets the next player.
- * @param {number} playerWhoseTurnEndedId - The ID of the player whose turn just finished.
- */
 function endTurn(playerWhoseTurnEndedId) {
     if (!state.gameActive) {
         console.log(`[GameLogic endTurn] Game not active, not switching turn from P-ID ${playerWhoseTurnEndedId}.`);
@@ -318,7 +306,6 @@ function endTurn(playerWhoseTurnEndedId) {
     const currentPlayerArrayIndex = state.playersData.findIndex(p => p.id === playerWhoseTurnEndedId);
     if (currentPlayerArrayIndex === -1) {
         console.error(`[GameLogic endTurn] Player with ID ${playerWhoseTurnEndedId} not found in playersData.`);
-        // Default to first player if current is not found, to prevent crash
         state.setCurrentPlayerIndex(state.playersData[0].id);
         ui.updatePlayerTurnDisplay();
         return;
@@ -331,13 +318,12 @@ function endTurn(playerWhoseTurnEndedId) {
     const nextPlayerObject = state.playersData.find(p => p.id === nextPlayerId);
     console.log(`[GameLogic endTurn] P-ID ${playerWhoseTurnEndedId}'s turn ended. Next is P-ID ${state.currentPlayerIndex} (${nextPlayerObject?.name}).`);
     
-    if (!state.pvpRemoteActive) { // Local game specific logic
-        state.setLastMoveForUndo(null); // Clear undo for the previous player's move
+    if (!state.pvpRemoteActive) { 
+        state.setLastMoveForUndo(null); 
         const undoBtn = document.getElementById('undo-btn');
         if (undoBtn) undoBtn.disabled = true;
-        ui.updateMessageArea(''); // Clear any "you scored" messages
+        ui.updateMessageArea(''); 
     }
-    // ui.updatePlayerTurnDisplay(); // Caller (processMove) will handle this
 }
 
 export function handleUndo() {
@@ -346,7 +332,10 @@ export function handleUndo() {
         if (undoBtn) undoBtn.disabled = true;
         return;
     }
-    if(sound.undoSound && typeof sound.playSound === 'function') sound.playSound(sound.undoSound, "E3", "16n");
+    if(sound.undoSound && typeof sound.playSound === 'function') {
+        sound.playSound(sound.undoSound, "E3", "16n");
+        if(typeof sound.triggerVibration === 'function') sound.triggerVibration(40); // Haptic for undo
+    }
 
     const { type, r, c, playerMakingMoveId, lineElement, slotElement, boxesCompletedBeforeThisMove, scoreBeforeThisMove } = state.lastMoveForUndo;
     console.log(`[GameLogic handleUndo] Reverting move by P-ID ${playerMakingMoveId}: ${type} at (${r},${c})`);
@@ -363,17 +352,16 @@ export function handleUndo() {
     if (boxesCompletedBeforeThisMove) {
         let boxesRevertedCount = 0;
         boxesCompletedBeforeThisMove.forEach(prevBoxState => {
-            // Only revert if the box was indeed completed by the player whose move is being undone
             if (state.boxes[prevBoxState.r]?.[prevBoxState.c] === playerMakingMoveId && prevBoxState.player === -1) {
                 state.boxes[prevBoxState.r][prevBoxState.c] = -1;
                 ui.removeFilledBoxFromBoard(prevBoxState.r, prevBoxState.c);
                 boxesRevertedCount++;
             }
         });
-        state.incrementFilledBoxesCount(-boxesRevertedCount); // Decrement global count
+        state.incrementFilledBoxesCount(-boxesRevertedCount); 
     }
     const playerToUpdate = state.playersData.find(p => p.id === playerMakingMoveId);
-    if(playerToUpdate) playerToUpdate.score = scoreBeforeThisMove; // Restore score
+    if(playerToUpdate) playerToUpdate.score = scoreBeforeThisMove; 
 
     ui.updateScoresDisplay();
     ui.updateMessageArea(`${playerToUpdate?.name || 'Jugador'}, ¡hacé tu jugada de nuevo!`);
@@ -381,7 +369,7 @@ export function handleUndo() {
     const undoBtn = document.getElementById('undo-btn');
     if (undoBtn) undoBtn.disabled = true;
 
-    state.setCurrentPlayerIndex(playerMakingMoveId); // Set turn back to the player who is undoing
+    state.setCurrentPlayerIndex(playerMakingMoveId); 
     ui.updatePlayerTurnDisplay();
     ui.setBoardClickable(true);
 }
@@ -404,7 +392,7 @@ export function getWinnerData() {
         if (player.score > maxScore) {
             maxScore = player.score;
             winners = [{ name: player.name, icon: player.icon, score: player.score, id: player.id }];
-        } else if (player.score === maxScore && maxScore !== -1) { // Check maxScore !== -1 to ensure it's a valid score comparison
+        } else if (player.score === maxScore && maxScore !== -1) { 
             winners.push({ name: player.name, icon: player.icon, score: player.score, id: player.id });
         }
     });
@@ -413,29 +401,40 @@ export function getWinnerData() {
 }
 
 function announceWinner() {
-    if (state.gameActive) { // Should ideally be false here if checkGameOver was effective
+    if (state.gameActive) { 
        console.warn("[GameLogic announceWinner] Called while game is still marked active. This might be premature.");
     }
     const { winners, maxScore, isTie } = getWinnerData();
     let winnerMessage;
+    let hapticPattern = null;
 
     if (winners.length === 0 && state.totalPossibleBoxes > 0 && state.filledBoxesCount >= state.totalPossibleBoxes) {
          winnerMessage = "¡Es un empate general! ¡Todas las cajitas han sido llenadas!";
          if(sound.tieSound && typeof sound.playSound === 'function') sound.playSound(sound.tieSound, ["C4", "E4", "G4"], "4n");
+         hapticPattern = [80, 60, 80];
     } else if (maxScore === 0 && state.filledBoxesCount === state.totalPossibleBoxes && state.playersData.every(p => p.score === 0)) {
         winnerMessage = "¡Todas las cajitas llenas, pero fue un empate sin puntos! ¿Revancha?";
         if(sound.tieSound && typeof sound.playSound === 'function') sound.playSound(sound.tieSound, ["C4", "E4", "G4"], "4n");
+        hapticPattern = [80, 60, 80];
     } else if (!isTie && winners.length === 1) {
         winnerMessage = `¡${winners[0].name} ${winners[0].icon} ganó con ${maxScore} cajitas brillantes! ¡Bravo! 🥳`;
         if(sound.winSound && typeof sound.playSound === 'function') sound.playSound(sound.winSound, ["C4", "E4", "G4", "C5"], "2n");
+        hapticPattern = [100, 50, 100, 50, 200];
     } else if (isTie && winners.length > 0) {
         const winnerNames = winners.map(p => `${p.name} ${p.icon}`).join(' y ');
         winnerMessage = `¡Hay un súper empate entre ${winnerNames} con ${maxScore} cajitas cada uno! ¡Muy bien jugado! 🎉`;
         if(sound.tieSound && typeof sound.playSound === 'function') sound.playSound(sound.tieSound, ["D4", "F4", "A4"], "4n");
+        hapticPattern = [90, 70, 90];
     } else {
         winnerMessage = "El juego ha terminado.";
         console.log("[GameLogic announceWinner] Game ended, but winner conditions were ambiguous.", {winners, maxScore, isTie});
+        // No specific win/tie sound, maybe a generic game end sound/haptic if desired
     }
+
+    if(hapticPattern && typeof sound.triggerVibration === 'function') {
+        sound.triggerVibration(hapticPattern);
+    }
+
     ui.showModalMessage(`¡Juego Terminado! ${winnerMessage}`);
     ui.updateMessageArea('');
     const mainTitle = document.getElementById('main-title');
@@ -444,7 +443,6 @@ function announceWinner() {
 }
 
 export function applyRemoteMove(moveData, nextPlayerIdFromLeader, updatedScoresFromLeader) {
-    // Allow applying move even if game locally marked inactive, to sync final state, but log it.
     if (!state.pvpRemoteActive && !state.gameActive) {
         console.warn(`[GameLogic applyRemoteMove] Ignoring. Not PVP or game not active locally. Active: ${state.gameActive}, PVP: ${state.pvpRemoteActive}`);
         return;
@@ -453,7 +451,7 @@ export function applyRemoteMove(moveData, nextPlayerIdFromLeader, updatedScoresF
         console.log("[GameLogic applyRemoteMove] Game already ended locally, but applying remote move possibly for final sync.");
     }
     
-    const { type, r, c, playerIndex: moverPlayerId } = moveData; // playerIndex from message is the ID of the mover
+    const { type, r, c, playerIndex: moverPlayerId } = moveData; 
     const moverPlayerObject = state.playersData.find(p => p.id === moverPlayerId);
     const nextPlayerObject = state.playersData.find(p => p.id === nextPlayerIdFromLeader);
 
@@ -465,7 +463,10 @@ export function applyRemoteMove(moveData, nextPlayerIdFromLeader, updatedScoresF
         if (type === 'h') state.horizontalLines[r][c] = 1;
         else state.verticalLines[r][c] = 1;
         ui.drawVisualLineOnBoard(type, r, c, moverPlayerId);
-        if(sound.lineSound && typeof sound.playSound === 'function') sound.playSound(sound.lineSound, "C4", "32n");
+        if(sound.lineSound && typeof sound.playSound === 'function') {
+            sound.playSound(sound.lineSound, "C4", "32n");
+            if(typeof sound.triggerVibration === 'function') sound.triggerVibration(50); // Haptic for line
+        }
         const slotId = `slot-${type}-${r}-${c}`;
         const slotElement = document.getElementById(slotId);
         if (slotElement) {
@@ -476,9 +477,12 @@ export function applyRemoteMove(moveData, nextPlayerIdFromLeader, updatedScoresF
         console.log(`[GameLogic applyRemoteMove] Line ${type}-${r}-${c} by P-ID ${moverPlayerId} already exists locally. Skipping draw.`);
     }
 
-    const boxesCompletedLocally = checkForCompletedBoxes(type, r, c, moverPlayerId); // Use mover's ID for filling
-    if (boxesCompletedLocally > 0 && !lineAlreadyExists) {
-        if(sound.boxSound && typeof sound.playSound === 'function') sound.playSound(sound.boxSound, "A5", "16n", Tone.now() + 0.05);
+    const boxesCompletedLocally = checkForCompletedBoxes(type, r, c, moverPlayerId); 
+    if (boxesCompletedLocally > 0 && !lineAlreadyExists) { // Only play sound/haptic if line was new for this client
+        if(sound.boxSound && typeof sound.playSound === 'function') {
+            sound.playSound(sound.boxSound, "A5", "16n", Tone.now() + 0.05);
+            if(typeof sound.triggerVibration === 'function') sound.triggerVibration([60, 40, 60]); // Haptic for box
+        }
     }
     
     if (updatedScoresFromLeader) {
@@ -486,7 +490,6 @@ export function applyRemoteMove(moveData, nextPlayerIdFromLeader, updatedScoresF
             const playerToUpdate = state.playersData.find(p => p.id === ps.id);
             if (playerToUpdate) playerToUpdate.score = ps.score;
         });
-        // Recalculate filledBoxesCount based on actual boxes state for robust sync
         let newFilledCount = 0;
         for(let br=0; br < state.numRows-1; br++){
             for(let bc=0; bc < state.numCols-1; bc++){
@@ -497,14 +500,16 @@ export function applyRemoteMove(moveData, nextPlayerIdFromLeader, updatedScoresF
         ui.updateScoresDisplay();
     }
 
-    state.setCurrentPlayerIndex(nextPlayerIdFromLeader); // Update current player to the ID from leader
+    state.setCurrentPlayerIndex(nextPlayerIdFromLeader); 
     ui.updatePlayerTurnDisplay();
 
-    const isGameOver = checkGameOver(); // Sets state.gameActive = false if over
+    const isGameOver = checkGameOver(); 
 
     if (isGameOver) {
         ui.setBoardClickable(false);
-        console.log("[GameLogic applyRemoteMove] Game is over after applying remote move. Client awaits GAME_OVER_ANNOUNCEMENT for modal.");
+        console.log("[GameLogic applyRemoteMove] Game is over after applying remote move. Client awaits GAME_OVER_ANNOUNCEMENT for modal & final haptics.");
+        // Winner haptics will be triggered by GAME_OVER_ANNOUNCEMENT handler in peerConnection.js if that calls announceWinner or similar.
+        // For now, announceWinner is local. If GAME_OVER_ANNOUNCEMENT triggers a modal, that's where haptics could go.
     } else {
         const isMyTurnNow = state.networkRoomData.myPlayerIdInRoom === state.currentPlayerIndex;
         console.log(`[GameLogic applyRemoteMove] Is it my turn now? ${isMyTurnNow} (My ID: ${state.networkRoomData.myPlayerIdInRoom}, Current Turn P-ID: ${state.currentPlayerIndex})`);
@@ -514,7 +519,7 @@ export function applyRemoteMove(moveData, nextPlayerIdFromLeader, updatedScoresF
         } else if (state.gameActive) {
             const currentPlayerName = state.playersData.find(p => p.id === state.currentPlayerIndex)?.name || `Jugador ${state.currentPlayerIndex}`;
             ui.updateMessageArea(`Esperando a ${currentPlayerName}...`, false, 0);
-        } else if (!state.gameActive && !isGameOver) { // Game became inactive but not due to all boxes filled (e.g. disconnect)
+        } else if (!state.gameActive && !isGameOver) { 
             ui.updateMessageArea("El juego ha sido interrumpido.", false, 0);
         }
     }
@@ -531,28 +536,24 @@ export function applyFullState(remoteGameState) {
     state.logCurrentState("Before applyFullState");
 
     state.setGameDimensions(remoteGameState.gameSettings.rows, remoteGameState.gameSettings.cols);
-    state.setPlayersData(remoteGameState.playersInGameOrder.map(p => ({...p}))); // Crucial: this sets the players for the game
+    state.setPlayersData(remoteGameState.playersInGameOrder.map(p => ({...p}))); 
     
     state.setHorizontalLines(remoteGameState.horizontalLines.map(row => [...row]));
     state.setVerticalLines(remoteGameState.verticalLines.map(row => [...row]));
-    state.setBoxes(remoteGameState.boxes.map(row => [...row])); // Boxes store player IDs
+    state.setBoxes(remoteGameState.boxes.map(row => [...row])); 
     state.setFilledBoxesCount(remoteGameState.filledBoxesCount);
-    state.setCurrentPlayerIndex(remoteGameState.currentPlayerIndex); // This is the ID of the current player
+    state.setCurrentPlayerIndex(remoteGameState.currentPlayerIndex); 
     state.setGameActive(remoteGameState.gameActive);
-    state.networkRoomData.turnCounter = remoteGameState.turnCounter; // Sync turn counter
+    state.networkRoomData.turnCounter = remoteGameState.turnCounter; 
 
     ui.clearBoardForNewGame();
-    ui.drawBoardSVG(); // Redraws dots and empty slots
-    addSlotListeners(); // Re-add listeners to new slots
+    ui.drawBoardSVG(); 
+    addSlotListeners(); 
 
-    // Redraw lines
     state.horizontalLines.forEach((row, r_idx) => {
         row.forEach((val, c_idx) => {
             if (val) {
-                // For simplicity, just draw with a default color or try to find any player for the line.
-                // The original line owner isn't stored with the line itself.
-                // Box owner is more important.
-                ui.drawVisualLineOnBoard('h', r_idx, c_idx, remoteGameState.currentPlayerIndex); // Or a generic player index like 0
+                ui.drawVisualLineOnBoard('h', r_idx, c_idx, remoteGameState.currentPlayerIndex); 
                 const slotElement = document.getElementById(`slot-h-${r_idx}-${c_idx}`);
                 if(slotElement) {
                      slotElement.style.fill = 'transparent';
@@ -574,9 +575,8 @@ export function applyFullState(remoteGameState) {
         });
     });
 
-    // Redraw filled boxes with correct player owner
     state.boxes.forEach((row, r_idx) => {
-        row.forEach((playerOwnerId, c_idx) => { // playerOwnerId is the ID of the player who filled the box
+        row.forEach((playerOwnerId, c_idx) => { 
             if (playerOwnerId !== -1) {
                 ui.fillBoxOnBoard(r_idx, c_idx, playerOwnerId);
             }
@@ -592,11 +592,12 @@ export function applyFullState(remoteGameState) {
         const currentPlayerObject = state.playersData.find(p => p.id === state.currentPlayerIndex);
         if(isMyTurn) ui.updateMessageArea("¡Tu turno! (Estado Sincronizado)");
         else ui.updateMessageArea(`Esperando a ${currentPlayerObject?.name || 'oponente'}... (Estado Sincronizado)`, false, 0);
+        if(typeof sound.triggerVibration === 'function') sound.triggerVibration(30); // Small vibration for state sync
     } else {
         ui.setBoardClickable(false);
         if (state.filledBoxesCount >= state.totalPossibleBoxes && state.totalPossibleBoxes > 0) {
-            // Game ended normally, winner modal handled by GAME_OVER_ANNOUNCEMENT
             console.log("[GameLogic applyFullState] Synced to a game over state.");
+            // Haptics for game over would be handled by GAME_OVER_ANNOUNCEMENT typically.
         } else {
             ui.updateMessageArea("Juego sincronizado. Esperando acción o finalización...");
         }
@@ -615,5 +616,6 @@ export function endGameAbruptly() {
         const undoBtn = document.getElementById('undo-btn');
         if (undoBtn && !state.pvpRemoteActive) undoBtn.disabled = true;
         state.setLastMoveForUndo(null);
+        if(typeof sound.triggerVibration === 'function') sound.triggerVibration([50,30,50,30,50]); // Haptic for abrupt end
     }
 }

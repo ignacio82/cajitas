@@ -8,7 +8,7 @@ console.log("[Main - Pre-DOM] Initial URLSearchParams:", new URLSearchParams(win
 import * as state from './state.js';
 import * as ui from './ui.js';
 import * as gameLogic from './gameLogic.js';
-import * as sound from './sound.js';
+import * as sound from './sound.js'; // Ensure sound is imported
 import * as peerConnection from './peerConnection.js';
 import * as matchmaking from './matchmaking_supabase.js';
 
@@ -39,7 +39,7 @@ function setupEventListeners() {
 
     const startGameBtn = document.getElementById('start-game-btn');
     const resetGameBtn = document.getElementById('reset-game-btn');
-    const undoBtn = document.getElementById('undo-btn');
+    const undoBtn = document.getElementById('undo-btn'); // Undo haptics are in gameLogic.js
     const numPlayersInput = document.getElementById('num-players-input');
     const hostGameButton = document.getElementById('host-cajitas-btn');
     const playRandomButton = document.getElementById('play-random-cajitas-btn');
@@ -48,15 +48,16 @@ function setupEventListeners() {
     const lobbyStartGameLeaderBtn = document.getElementById('lobby-start-game-leader-btn');
     const lobbyLeaveRoomBtn = document.getElementById('lobby-leave-room-btn');
     const modalCloseBtn = document.getElementById('modal-close-btn');
-    const customModal = document.getElementById('custom-modal');
+    const customModal = document.getElementById('custom-modal'); // For background click close
 
     startGameBtn?.addEventListener('click', async () => {
         if (!state.soundsInitialized) await sound.initSounds();
-        if (state.soundsInitialized) sound.playSound(sound.uiClickSound, "C4", "16n");
+        if (state.soundsInitialized && sound.uiClickSound) {
+            sound.playSound(sound.uiClickSound, "C4", "16n");
+            if (typeof sound.triggerVibration === 'function') sound.triggerVibration(35); // Slightly stronger for start
+        }
 
-        stopAnyActiveGameOrNetworkSession(); // This resets pvpRemoteActive to false
-        // state.setPvpRemoteActive(false); // Ensured by stopAnyActive...
-
+        stopAnyActiveGameOrNetworkSession(); 
         const numLocalPlayers = parseInt(document.getElementById('num-players-input').value);
         state.setGameDimensions(parseInt(document.getElementById('rows').value), parseInt(document.getElementById('cols').value));
 
@@ -65,16 +66,23 @@ function setupEventListeners() {
             const name = document.getElementById(`player-name-${i}`)?.value || `Jugador ${i + 1}`;
             const icon = document.getElementById(`player-icon-${i}`)?.value || state.AVAILABLE_ICONS[i % state.AVAILABLE_ICONS.length];
             const color = document.getElementById(`player-color-${i}`)?.value || state.DEFAULT_PLAYER_COLORS[i % state.DEFAULT_PLAYER_COLORS.length];
-            localPlayers.push({ id: i, name, icon, color, score: 0 }); // id is the playerIndex
+            localPlayers.push({ id: i, name, icon, color, score: 0 });
         }
-        state.setPlayersData(localPlayers); // Sets for active game
+        state.setPlayersData(localPlayers); 
 
-        gameLogic.initializeGame(false); // false for local game
+        gameLogic.initializeGame(false); 
         ui.showGameScreen();
+        if (state.soundsInitialized && sound.gameStartSound) { // Game start sound for local game too
+             sound.playSound(sound.gameStartSound, "C5", "8n");
+             if (typeof sound.triggerVibration === 'function') sound.triggerVibration([50,30,100]);
+        }
     });
 
     resetGameBtn?.addEventListener('click', () => {
-        if (state.soundsInitialized) sound.playSound(sound.uiClickSound, "E3", "16n");
+        if (state.soundsInitialized && sound.uiClickSound) {
+            sound.playSound(sound.uiClickSound, "E3", "16n");
+            if (typeof sound.triggerVibration === 'function') sound.triggerVibration(30);
+        }
 
         if (state.pvpRemoteActive && state.networkRoomData.roomId) {
             ui.showModalMessageWithActions("¿Reiniciar el juego o salir de la sala?", [
@@ -84,52 +92,59 @@ function setupEventListeners() {
             ]);
         } else {
             stopAnyActiveGameOrNetworkSession();
-            gameLogic.resetGame(true); // true for backToSetupScreen
+            gameLogic.resetGame(true); 
             ui.showSetupScreen();
         }
     });
 
+    // Undo button's haptic feedback is handled in gameLogic.js via handleUndo()
     undoBtn?.addEventListener('click', () => {
         if (state.pvpRemoteActive) {
             ui.updateMessageArea("Deshacer no disponible en juegos de red.", true);
+            // No sound or haptic for this specific error message path, or add error haptic here
+            if(sound.errorSound && typeof sound.playSound === 'function') sound.playSound(sound.errorSound, undefined, "16n");
+            if(typeof sound.triggerVibration === 'function') sound.triggerVibration([70,50,70]);
             return;
         }
-        if (state.soundsInitialized) sound.playSound(sound.undoSound, "E3", "16n");
+        // gameLogic.handleUndo() will play sound and haptic
         gameLogic.handleUndo();
     });
 
     numPlayersInput?.addEventListener('input', (e) => {
-        if (state.pvpRemoteActive && state.networkRoomData.roomState !== 'idle' && state.networkRoomData.roomState !== 'setup') return; // Prevent changes if in a network session
+        if (state.pvpRemoteActive && state.networkRoomData.roomState !== 'idle' && state.networkRoomData.roomState !== 'setup') return; 
         const count = parseInt(e.target.value);
         if (count >= 2 && count <= state.MAX_PLAYERS_LOCAL) {
             ui.generatePlayerSetupFields(count);
+            // Optional: haptic for input change if desired, e.g., sound.triggerVibration(10);
         }
     });
 
     hostGameButton?.addEventListener('click', async () => {
         console.log("[Main] Host game button clicked");
         if (!state.soundsInitialized) await sound.initSounds();
-        if (state.soundsInitialized) sound.playSound(sound.uiClickSound, "C4", "16n");
+        if (state.soundsInitialized && sound.uiClickSound) {
+            sound.playSound(sound.uiClickSound, "C4", "16n");
+            if (typeof sound.triggerVibration === 'function') sound.triggerVibration(30);
+        }
 
-        stopAnyActiveGameOrNetworkSession(); // Resets pvpRemoteActive, networkRoomData
-        // state.setPvpRemoteActive(true); // Will be set by hostNewRoom or its flow
-
+        stopAnyActiveGameOrNetworkSession(); 
         const gameSettings = {
             rows: parseInt(document.getElementById('rows').value),
             cols: parseInt(document.getElementById('cols').value),
             maxPlayers: parseInt(document.getElementById('network-max-players').value)
         };
-        const hostPlayerData = state.getLocalPlayerCustomizationForNetwork(); // Use state helper
+        const hostPlayerData = state.getLocalPlayerCustomizationForNetwork(); 
 
-        ui.generatePlayerSetupFields(1, true); // Setup UI for "self" as host
+        ui.generatePlayerSetupFields(1, true); 
         try {
             await peerConnection.hostNewRoom(hostPlayerData, gameSettings);
-            // UI transitions (lobby, QR code) are handled within hostNewRoom's logic (onPeerOpen)
             console.log("[Main] hostNewRoom promise resolved. Host setup should be complete.");
+            // Potentially a success haptic here if hostNewRoom itself doesn't cover it via modal/UI change sounds
         } catch (error) {
             console.error("[Main] Error hosting new room:", error);
             ui.showModalMessage(`Error al crear la sala: ${error.message || 'Error desconocido'}`);
-            stopAnyActiveGameOrNetworkSession(); // Cleanup
+            if (typeof sound.triggerVibration === 'function') sound.triggerVibration([70,50,70]); // Error haptic
+            stopAnyActiveGameOrNetworkSession(); 
             ui.showSetupScreen();
         }
     });
@@ -137,11 +152,12 @@ function setupEventListeners() {
     playRandomButton?.addEventListener('click', async () => {
         console.log("[Main] Play random button clicked");
         if (!state.soundsInitialized) await sound.initSounds();
-        if (state.soundsInitialized) sound.playSound(sound.uiClickSound, "D4", "16n");
+        if (state.soundsInitialized && sound.uiClickSound) {
+            sound.playSound(sound.uiClickSound, "D4", "16n");
+            if (typeof sound.triggerVibration === 'function') sound.triggerVibration(30);
+        }
 
         stopAnyActiveGameOrNetworkSession();
-        // state.setPvpRemoteActive(true); // Will be set by join/host flow
-
         const myPlayerData = state.getLocalPlayerCustomizationForNetwork();
         const preferences = {
             maxPlayers: parseInt(document.getElementById('network-max-players').value),
@@ -151,18 +167,17 @@ function setupEventListeners() {
             }
         };
 
-        ui.generatePlayerSetupFields(1, true); // Setup UI for "self"
+        ui.generatePlayerSetupFields(1, true); 
         state.setNetworkRoomData({ roomState: 'seeking_match' });
-        ui.updateGameModeUI(); // Show "seeking match" UI if any
+        ui.updateGameModeUI(); 
 
         try {
-            // First, ensure PeerJS is up for us. This will set state.myPeerId.
             const localPeerId = await peerConnection.ensurePeerInitialized();
             if (!localPeerId) {
                 throw new Error("No se pudo obtener un ID de PeerJS para el matchmaking.");
             }
             console.log(`[Main - Random Matching] My PeerJS ID for matchmaking: ${localPeerId}`);
-            state.setPvpRemoteActive(true); // Now we are actively in PvP mode
+            state.setPvpRemoteActive(true); 
 
             matchmaking.joinQueue(localPeerId, myPlayerData, preferences, {
                 onSearching: () => {
@@ -177,18 +192,17 @@ function setupEventListeners() {
                 },
                 onMatchFoundAndJoiningRoom: async (roomIdToJoin, roomLeaderPeerId, initialRoomData) => {
                     console.log(`[Main - Random Matching] Match found! Joining Room ID (Leader PeerID): ${roomLeaderPeerId}`);
-                    ui.hideModalMessage();
+                    ui.hideModalMessage(); // Hide searching modal if any
                     if (ui.networkInfoArea && ui.networkInfoTitle.textContent === "Buscando Partida...") ui.hideNetworkInfo();
+                    if (typeof sound.triggerVibration === 'function') sound.triggerVibration(40); // Haptic for match found
 
-                    // RoomIdToJoin is likely the leader's peerId (raw, without prefix)
-                    // The state for joining will be set up by joinRoomById
                     try {
                         await peerConnection.joinRoomById(roomLeaderPeerId, myPlayerData);
                         console.log("[Main] joinRoomById for random match completed successfully.");
-                        // UI transition to lobby is handled by joinRoomById's callbacks
                     } catch (joinError) {
                         console.error("[Main] Error joining room after random match found:", joinError);
                         ui.showModalMessage(`Error al unirse a la sala encontrada: ${joinError.message || 'Error desconocido'}`);
+                        if (typeof sound.triggerVibration === 'function') sound.triggerVibration([70,50,70]); // Error haptic
                         stopAnyActiveGameOrNetworkSession();
                         ui.showSetupScreen();
                     }
@@ -198,14 +212,15 @@ function setupEventListeners() {
                     console.log(`[Main - Random Matching] No suitable room. Hosting new Room. My PeerID (raw): ${newRoomHostPeerId}`);
                     ui.hideModalMessage();
                     if (ui.networkInfoArea && ui.networkInfoTitle.textContent === "Buscando Partida...") ui.hideNetworkInfo();
+                    if (typeof sound.triggerVibration === 'function') sound.triggerVibration(40); // Haptic for becoming host
 
                     try {
-                        // newRoomHostPeerId is our localRawPeerId, hostNewRoom will use state.myPeerId
-                        await peerConnection.hostNewRoom(myPlayerData, initialRoomData.gameSettings, true); // true for isRandomMatchHost
+                        await peerConnection.hostNewRoom(myPlayerData, initialRoomData.gameSettings, true); 
                         console.log("[Main - Random Matching] hostNewRoom completed for random match fallback.");
                     } catch (hostError) {
                         console.error("[Main - Random Matching] Error during hostNewRoom fallback:", hostError);
                         ui.showModalMessage(`Error al crear sala para matchmaking: ${hostError.message || hostError}`);
+                        if (typeof sound.triggerVibration === 'function') sound.triggerVibration([70,50,70]); // Error haptic
                         stopAnyActiveGameOrNetworkSession();
                         ui.showSetupScreen();
                     }
@@ -215,6 +230,7 @@ function setupEventListeners() {
                     ui.hideModalMessage();
                     if (ui.networkInfoArea && ui.networkInfoTitle.textContent === "Buscando Partida...") ui.hideNetworkInfo();
                     ui.showModalMessage(`Error de Matchmaking: ${errMsg}`);
+                    if (typeof sound.triggerVibration === 'function') sound.triggerVibration([70,50,70]); // Error haptic
                     if (cancelMatchmakingButton) cancelMatchmakingButton.style.display = 'none';
                     stopAnyActiveGameOrNetworkSession();
                     ui.showSetupScreen();
@@ -223,16 +239,18 @@ function setupEventListeners() {
                     ui.hideModalMessage();
                     if (ui.networkInfoArea && ui.networkInfoTitle.textContent === "Buscando Partida...") ui.hideNetworkInfo();
                     ui.showModalMessage("No se encontraron salas al azar. Intentá de nuevo más tarde o creá una sala.");
+                    if (typeof sound.triggerVibration === 'function') sound.triggerVibration(40); // Neutral haptic for timeout
                     if (cancelMatchmakingButton) cancelMatchmakingButton.style.display = 'none';
-                    matchmaking.leaveQueue(localPeerId); // Ensure queue is left with our peerId
+                    matchmaking.leaveQueue(state.myPeerId); 
                     stopAnyActiveGameOrNetworkSession();
                     ui.showSetupScreen();
                 }
             });
-        } catch (initError) { // Error from ensurePeerInitialized
+        } catch (initError) { 
             ui.hideModalMessage();
             if (ui.networkInfoArea && ui.networkInfoTitle.textContent === "Buscando Partida...") ui.hideNetworkInfo();
             ui.showModalMessage(`Error al iniciar PeerJS para matchmaking: ${initError.message || 'Desconocido'}`);
+            if (typeof sound.triggerVibration === 'function') sound.triggerVibration([70,50,70]); // Error haptic
             if (cancelMatchmakingButton) cancelMatchmakingButton.style.display = 'none';
             stopAnyActiveGameOrNetworkSession();
             ui.showSetupScreen();
@@ -241,67 +259,96 @@ function setupEventListeners() {
 
 
     cancelMatchmakingButton?.addEventListener('click', () => {
-        if (state.soundsInitialized) sound.playSound(sound.uiClickSound, "A3", "16n");
-        matchmaking.leaveQueue(state.myPeerId); // Pass current peerId if available
-        // peerConnection.closePeerSession(); // stopAnyActiveGame handles this
-        stopAnyActiveGameOrNetworkSession(); // Resets states and UI
+        if (state.soundsInitialized && sound.uiClickSound) {
+            sound.playSound(sound.uiClickSound, "A3", "16n");
+            if (typeof sound.triggerVibration === 'function') sound.triggerVibration(30);
+        }
+        matchmaking.leaveQueue(state.myPeerId); 
+        stopAnyActiveGameOrNetworkSession(); 
         ui.hideModalMessage();
         if (ui.networkInfoArea && ui.networkInfoTitle.textContent === "Buscando Partida...") {
              ui.hideNetworkInfo();
         }
         ui.updateMessageArea("Búsqueda de sala cancelada.");
-        // ui.showSetupScreen(); // Called by stopAnyActive...
         if(cancelMatchmakingButton) cancelMatchmakingButton.style.display = 'none';
     });
 
     lobbyToggleReadyBtn?.addEventListener('click', () => {
         if (!state.pvpRemoteActive || !state.networkRoomData.roomId) return;
-        if (state.soundsInitialized) sound.playSound(sound.uiClickSound, "G4", "16n");
+        if (state.soundsInitialized && sound.uiClickSound) {
+            sound.playSound(sound.uiClickSound, "G4", "16n");
+            if (typeof sound.triggerVibration === 'function') sound.triggerVibration(30);
+        }
 
         const myCurrentData = state.networkRoomData.players.find(p => p.peerId === state.myPeerId);
         if (myCurrentData) {
             const newReadyState = !myCurrentData.isReady;
             peerConnection.sendPlayerReadyState(newReadyState);
-            // UI update will come from peerConnection based on broadcast or direct ack
         }
     });
 
     lobbyStartGameLeaderBtn?.addEventListener('click', () => {
         if (!state.pvpRemoteActive || !state.networkRoomData.isRoomLeader) return;
-        if (state.soundsInitialized) sound.playSound(sound.gameStartSound, "C5", "8n");
+        if (state.soundsInitialized && sound.gameStartSound) {
+            sound.playSound(sound.gameStartSound, "C5", "8n");
+            if (typeof sound.triggerVibration === 'function') sound.triggerVibration([50, 30, 100]); // Game start haptic
+        }
 
         const allReady = state.networkRoomData.players.length >= state.MIN_PLAYERS_NETWORK &&
-                         state.networkRoomData.players.every(p => p.isReady && p.isConnected);
+                         state.networkRoomData.players.every(p => p.isReady && p.isConnected !== false);
         if (allReady) {
-            peerConnection.sendStartGameRequest(); // This will initiate game start for all
+            peerConnection.sendStartGameRequest(); 
         } else {
             ui.updateLobbyMessage("No todos los jugadores están listos o conectados.", true);
+            if (typeof sound.triggerVibration === 'function') sound.triggerVibration([70,50,70]); // Error haptic
         }
     });
 
     lobbyLeaveRoomBtn?.addEventListener('click', () => {
-        if (state.soundsInitialized) sound.playSound(sound.uiClickSound, "D3", "16n");
+        if (state.soundsInitialized && sound.uiClickSound) {
+            sound.playSound(sound.uiClickSound, "D3", "16n");
+            if (typeof sound.triggerVibration === 'function') sound.triggerVibration(30);
+        }
 
         ui.showModalMessageWithActions("¿Seguro que querés salir de la sala?", [
             { text: "Sí, Salir", action: () => {
+                if (typeof sound.triggerVibration === 'function') sound.triggerVibration(25); // Confirm action haptic
                 stopAnyActiveGameOrNetworkSession();
                 ui.showSetupScreen();
                 ui.hideModalMessage();
             }},
-            { text: "No, Quedarme", action: ui.hideModalMessage, isCancel: true }
+            { text: "No, Quedarme", action: () => {
+                if (typeof sound.triggerVibration === 'function') sound.triggerVibration(25); // Confirm action haptic
+                ui.hideModalMessage();
+            }, isCancel: true }
         ]);
     });
 
     modalCloseBtn?.addEventListener('click', () => {
-        if (state.soundsInitialized) sound.playSound(sound.modalCloseSound, "C2", "32n");
+        if (state.soundsInitialized && sound.modalCloseSound) {
+            sound.playSound(sound.modalCloseSound, "C2", "32n");
+            if (typeof sound.triggerVibration === 'function') sound.triggerVibration(20); // Haptic for modal close
+        }
         ui.hideModalMessage();
     });
 
+    // Haptic for modal open can be added in ui.js showModalMessage functions if desired
+    // e.g., in ui.js:
+    // export function showModalMessage(message) {
+    //   ...
+    //   if(sound.modalOpenSound && typeof sound.playSound === 'function') sound.playSound(sound.modalOpenSound, "C5", "32n");
+    //   if(typeof sound.triggerVibration === 'function') sound.triggerVibration(20);
+    //   ...
+    // }
+
+
     window.addEventListener('click', (event) => {
         if (event.target === customModal) {
-            // Only close if no dynamic buttons are present, or make it smarter
             if (modalDynamicButtons && modalDynamicButtons.children.length === 0) {
-                if (state.soundsInitialized) sound.playSound(sound.modalCloseSound, "C2", "32n");
+                if (state.soundsInitialized && sound.modalCloseSound) {
+                     sound.playSound(sound.modalCloseSound, "C2", "32n");
+                     if (typeof sound.triggerVibration === 'function') sound.triggerVibration(20);
+                }
                 ui.hideModalMessage();
             }
         }
@@ -315,34 +362,30 @@ function stopAnyActiveGameOrNetworkSession(preserveUIScreen = false) {
 
     const wasPvpActive = state.pvpRemoteActive;
     const currentRoomId = state.networkRoomData.roomId;
-    const isLeader = state.networkRoomData.isRoomLeader;
+    // const isLeader = state.networkRoomData.isRoomLeader; // Not directly used here but good for context
 
-    if (state.gameActive) { // If a game (local or network) is active
-        gameLogic.endGameAbruptly(); // This sets state.gameActive = false
+    if (state.gameActive) { 
+        gameLogic.endGameAbruptly(); // This sets state.gameActive = false and plays haptic
     } else {
-        state.setGameActive(false); // Ensure it's false
+        state.setGameActive(false); 
     }
 
     if (wasPvpActive) {
         if (currentRoomId) {
-            peerConnection.leaveRoom(); // Informs others if leader, closes connection if client
+            peerConnection.leaveRoom(); 
         }
-        // matchmaking.leaveQueue might have been called by leaveRoom if leader,
-        // or by cancel matchmaking button. Call it again defensively if we were searching.
         if (state.networkRoomData.roomState === 'seeking_match' && state.myPeerId) {
             matchmaking.leaveQueue(state.myPeerId);
         }
-        peerConnection.closePeerSession(); // Destroys the peer object
+        peerConnection.closePeerSession(); 
     }
 
-
-    // Reset all relevant state for starting fresh
-    state.resetFullLocalStateForNewGame(); // This resets playersData, game flow, and networkRoomData, pvpRemoteActive
+    state.resetFullLocalStateForNewGame(); 
 
     if (!preserveUIScreen) {
-        ui.showSetupScreen(); // This also calls ui.updateGameModeUI()
+        ui.showSetupScreen(); 
     } else {
-        ui.updateGameModeUI(); // Ensure UI reflects the new idle state
+        ui.updateGameModeUI(); 
     }
 
     const cancelBtn = document.getElementById('cancel-matchmaking-btn');
@@ -352,58 +395,51 @@ function stopAnyActiveGameOrNetworkSession(preserveUIScreen = false) {
 }
 
 
-async function processUrlJoin() { // Make async
+async function processUrlJoin() { 
     const roomToJoin = window.cajitasJoinRoomOnLoad;
     if (!roomToJoin || !roomToJoin.roomId) {
         console.warn("[Main processUrlJoin] No room ID to process from URL.");
         ui.showSetupScreen();
         ui.generatePlayerSetupFields(parseInt(document.getElementById('num-players-input')?.value || "2"));
         try {
-            await peerConnection.ensurePeerInitialized(); // Ensure peer is ready for manual hosting/joining
+            await peerConnection.ensurePeerInitialized(); 
         } catch (e) { console.error("[Main] Error pre-initializing peer for no-URL scenario:", e); }
         return;
     }
 
     console.log("[Main - processUrlJoin] Processing room join for:", roomToJoin.roomId);
 
-    ui.showSetupScreen(); // Show setup for player customization
-    ui.generatePlayerSetupFields(1, true); // For "Your Name", "Your Icon", etc.
+    ui.showSetupScreen(); 
+    ui.generatePlayerSetupFields(1, true); 
 
-    // Delay for DOM rendering and to ensure user sees the setup screen briefly
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    stopAnyActiveGameOrNetworkSession(true); // true to preserve UI for the modal
-    // state.setPvpRemoteActive(true); // Will be set by joinRoomById flow
+    stopAnyActiveGameOrNetworkSession(true); 
 
+    // Modal open sound/haptic could be triggered by showModalMessageWithActions itself if ui.js is modified
+    // For now, the action buttons within the modal will have haptics.
     ui.showModalMessageWithActions(
         `¿Unirte a la sala ${state.CAJITAS_PEER_ID_PREFIX}${roomToJoin.roomId}? Personalizá tus datos en la pantalla de configuración si es necesario.`,
         [
             {
                 text: "Sí, ¡Unirme!",
                 action: async () => {
-                    ui.hideModalMessage(); // Hide before attempting to join
+                    if (state.soundsInitialized && sound.uiClickSound) { // Sound for modal button
+                        sound.playSound(sound.uiClickSound, "E4", "16n");
+                        if (typeof sound.triggerVibration === 'function') sound.triggerVibration(30);
+                    }
+                    ui.hideModalMessage(); 
                     const joinerPlayerData = state.getLocalPlayerCustomizationForNetwork();
-                    // state.setPvpRemoteActive(true); // Set before joinRoomById
-                    // state.setNetworkRoomData({ // Basic setup, peerConnection.joinRoomById will refine
-                    //     roomId: roomToJoin.roomId, // This is the raw peer ID from URL
-                    //     leaderPeerId: roomToJoin.roomId,
-                    //     isRoomLeader: false,
-                    //     maxPlayers: roomToJoin.slots || state.MAX_PLAYERS_NETWORK,
-                    //     roomState: 'connecting_to_lobby'
-                    // });
-                    // ui.updateGameModeUI(); // Reflects connecting state
-
                     try {
                         await peerConnection.joinRoomById(roomToJoin.roomId, joinerPlayerData);
-                        // Successfully initiated join, peerConnection callbacks will handle UI (e.g., lobby)
                         console.log("[Main processUrlJoin] joinRoomById initiated.");
-                        // ui.hideModalMessage(); // Moved up
                     } catch (error) {
                         console.error("[Main processUrlJoin] Error initiating joinRoomById:", error);
                         ui.showModalMessage(`Error al intentar unirse: ${error.message || 'Error desconocido'}`);
+                        if (typeof sound.triggerVibration === 'function') sound.triggerVibration([70,50,70]); // Error haptic
                         stopAnyActiveGameOrNetworkSession();
                         ui.showSetupScreen();
-                         window.history.replaceState({}, document.title, window.location.pathname); // Clear URL param
+                         window.history.replaceState({}, document.title, window.location.pathname); 
                          delete window.cajitasJoinRoomOnLoad;
                     }
                 }
@@ -411,10 +447,14 @@ async function processUrlJoin() { // Make async
             {
                 text: "No, Cancelar",
                 action: () => {
+                    if (state.soundsInitialized && sound.uiClickSound) { // Sound for modal button
+                        sound.playSound(sound.uiClickSound, "C4", "16n");
+                         if (typeof sound.triggerVibration === 'function') sound.triggerVibration(30);
+                    }
                     ui.hideModalMessage();
                     stopAnyActiveGameOrNetworkSession();
                     ui.showSetupScreen();
-                    window.history.replaceState({}, document.title, window.location.pathname); // Clear URL param
+                    window.history.replaceState({}, document.title, window.location.pathname); 
                     delete window.cajitasJoinRoomOnLoad;
                 },
                 isCancel: true
@@ -423,30 +463,27 @@ async function processUrlJoin() { // Make async
     );
 }
 
-document.addEventListener('DOMContentLoaded', async () => { // Make async
+document.addEventListener('DOMContentLoaded', async () => { 
     console.log("Cajitas de Danielle: DOM fully loaded and parsed");
     console.log("[Main - DOMContentLoaded] window.cajitasJoinRoomOnLoad:", window.cajitasJoinRoomOnLoad);
 
-    setupEventListeners(); // Setup all button clicks etc.
+    setupEventListeners(); 
 
     if (window.cajitasJoinRoomOnLoad && window.cajitasJoinRoomOnLoad.roomId) {
         console.log("[Main - DOMContentLoaded] Processing URL join immediately");
-        await processUrlJoin(); // processUrlJoin is now async
+        await processUrlJoin(); 
     } else {
         console.log("[Main - DOMContentLoaded] No room to join from URL, showing setup screen and pre-initializing PeerJS.");
-        ui.showSetupScreen(); // Default screen
-        // Generate fields for local play by default
+        ui.showSetupScreen(); 
         ui.generatePlayerSetupFields(parseInt(document.getElementById('num-players-input')?.value || "2"));
-        const undoBtn = document.getElementById('undo-btn');
-        if (undoBtn) undoBtn.disabled = true; // Undo not possible at start
+        const undoBtnDOM = document.getElementById('undo-btn'); // Renamed to avoid conflict with undoBtn in setupEventListeners
+        if (undoBtnDOM) undoBtnDOM.disabled = true; 
 
-        // Pre-initialize PeerJS so it's ready faster if user hosts/joins manually
         try {
             await peerConnection.ensurePeerInitialized();
              console.log('[Main] PeerJS pre-initialized on load (no room in URL). My ID (if available):', state.myPeerId);
         } catch (err) {
             console.warn('[Main] Benign PeerJS pre-init error (no room in URL):', err.type, err.message || err);
-            // Not critical if this fails, will re-attempt on host/join.
         }
     }
     state.logCurrentState("DOMContentLoaded End");

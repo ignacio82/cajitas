@@ -1,7 +1,7 @@
 // sound.js
 
 import * as state from './state.js';
-// import * as ui from './ui.js'; // Only if sound toggle button is managed here, otherwise in main/eventListeners
+// import * as ui from './ui.js'; // Only if sound/haptics toggle button is managed here
 
 // ---------- TONE.JS SOUND DEFINITIONS ----------
 // These will be initialized in initSounds()
@@ -15,6 +15,8 @@ export let modalCloseSound = null;
 export let undoSound = null;
 export let gameStartSound = null; // Sound for when a new game starts
 export let errorSound = null; // Sound for invalid actions or errors
+
+export let hapticsEnabled = true; // User preference for haptics. Can be made persistent.
 
 /**
  * Initializes all Tone.js instruments and sets their default parameters.
@@ -61,7 +63,7 @@ export async function initSounds() {
             volume: -18
         }).toDestination();
 
-        modalOpenSound = new Tone.Synth({
+        modalOpenSound = new Tone.Synth({ // Example sound for modal open
             oscillator: { type: 'sine' },
             envelope: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.1 },
             volume: -15
@@ -111,8 +113,6 @@ export function playSound(soundObject, note = "C4", duration = "8n", time = unde
     if (state.soundEnabled && state.soundsInitialized && soundObject && Tone.context.state === 'running') {
         try {
             if (soundObject.name === "PolySynth" || soundObject.name === "NoiseSynth" || soundObject.name === "MembraneSynth") {
-                 // PolySynth uses triggerAttackRelease with an array of notes, or single note
-                // NoiseSynth and MembraneSynth are typically just triggered
                 if (soundObject.name === "NoiseSynth" || soundObject.name === "MembraneSynth") {
                     soundObject.triggerAttackRelease(duration, time);
                 } else { // PolySynth
@@ -128,6 +128,25 @@ export function playSound(soundObject, note = "C4", duration = "8n", time = unde
 }
 
 /**
+ * Triggers haptic feedback if available and enabled.
+ * @param {number | number[]} pattern - Vibration pattern (e.g., 50, [100, 30, 100]).
+ * A single number is duration in ms.
+ * An array is [vibrate_ms, pause_ms, vibrate_ms, ...].
+ */
+export function triggerVibration(pattern = 50) {
+    if (hapticsEnabled && typeof navigator.vibrate === 'function') {
+        try {
+            navigator.vibrate(pattern);
+        } catch (e) {
+            // This can happen if the pattern is too long or invalid on some browsers,
+            // or if document is not focused, etc.
+            console.warn("Haptic feedback failed or was ignored by the browser:", e);
+        }
+    }
+}
+
+
+/**
  * Toggles the sound enabled state.
  * This function would typically be called by a UI button.
  */
@@ -139,9 +158,10 @@ export function toggleSoundEnabled() {
     // Play a sound to indicate the new state (if sound is now on)
     if (state.soundEnabled && state.soundsInitialized) {
         playSound(uiClickSound, "C5", "16n");
+        triggerVibration(20); // Haptic for toggle on
     } else if (!state.soundEnabled && state.soundsInitialized) {
         // Optional: play a muted click or a different sound for 'off'
-        playSound(uiClickSound, "C3", "16n");
+        playSound(uiClickSound, "C3", "16n"); // No haptic for toggle off, or a different one
     }
     // Update UI toggle button if it exists and is managed from here
     // ui.updateSoundToggleButton(state.soundEnabled); 
@@ -149,8 +169,21 @@ export function toggleSoundEnabled() {
     return state.soundEnabled;
 }
 
-// Example of how sounds might be used by gameLogic or ui:
-// playSound(lineSound, "C4", "32n");
-// playSound(boxSound, "A5", "16n", Tone.now() + i * 0.1); // For multiple boxes
-// playSound(winSound, ["C4", "E4", "G4", "C5"], "8n"); // Chord for win
-// playSound(errorSound, undefined, "16n"); // Error sound needs no note for NoiseSynth
+/**
+ * Toggles the haptics enabled state.
+ * UI for this toggle would need to be added separately.
+ */
+export function toggleHapticsEnabled() {
+    hapticsEnabled = !hapticsEnabled;
+    // Persist this setting if desired (e.g., localStorage)
+    // localStorage.setItem('cajitasHapticsEnabled', hapticsEnabled.toString());
+    console.log(`Haptics enabled: ${hapticsEnabled}`);
+    if (hapticsEnabled && state.soundsInitialized) { // Play a small confirmation vibration if turned on
+        triggerVibration(30);
+        playSound(uiClickSound, "C4", "16n"); // Also play a sound for haptic toggle
+    } else if (!hapticsEnabled && state.soundsInitialized) {
+        playSound(uiClickSound, "G3", "16n");
+    }
+    // ui.updateHapticsToggleButton(hapticsEnabled); // If a UI button exists for this
+    return hapticsEnabled;
+}
