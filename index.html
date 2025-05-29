@@ -13,6 +13,7 @@
     <title>Cajitas de Danielle - ¡A Jugar!</title>
 
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="manifest" href="manifest.json">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet">
@@ -161,7 +162,20 @@
     </div>
 
     <script src="peerjs-multiplayer.js?v=4"></script>
-    <script type="module" src="cpu.js?v=1"></script> {/* Added cpu.js */}
+    <script type="module" src="cpu.js?v=1"></script> 
     <script type="module" src="main.js?v=4"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js') // Ensure path is correct
+            .then(registration => {
+              console.log('ServiceWorker registration successful with scope: ', registration.scope);
+            })
+            .catch(err => {
+              console.log('ServiceWorker registration failed: ', err);
+            });
+        });
+      }
+    </script>
 </body>
 </html>
