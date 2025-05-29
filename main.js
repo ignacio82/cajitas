@@ -1,4 +1,4 @@
-// main.js -- FIXED VERSION with proper player assignment for random matching
+// main.js -- SIMPLIFIED VERSION with reliable role assignment
 
 // VERY EARLY LOG: What is the URL when the script first runs?
 console.log("[Main - Pre-DOM] Initial window.location.href:", window.location.href);
@@ -136,10 +136,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ui.cancelMatchmakingButton) ui.cancelMatchmakingButton.style.display = 'inline-block';
         ui.updateGameModeUI();
 
+        // SIMPLIFIED APPROACH: Don't pre-determine roles, let PeerJS connection flow decide
         peerConnection.ensurePeerInitialized({
             onPeerOpen: (localPeerId) => {
                 if (localPeerId) {
                     console.log(`[Main - Random Matching] My PeerJS ID: ${localPeerId}`);
+                    
+                    // Set up basic player data that can be used regardless of final role
+                    state.setPlayersData([
+                        {id: 0, name: myName, icon: myIcon, color: myColor, score: 0},
+                        {id: 1, name: "Oponente", icon: "❓", color: state.DEFAULT_PLAYER_COLORS[1], score: 0}
+                    ]);
+                    state.setRemotePlayersData([...state.playersData]);
+                    ui.updateScoresDisplay();
                     
                     matchmaking.joinQueue(localPeerId, {
                         onSearching: () => {
@@ -152,40 +161,15 @@ document.addEventListener('DOMContentLoaded', () => {
                             ui.showModalMessage(`¡Oponente encontrado! (${opponentRawPeerId.substring(0,8)}...). Conectando...`);
                             if (ui.cancelMatchmakingButton) ui.cancelMatchmakingButton.classList.add('hidden');
                             
-                            // CRITICAL FIX: Proper role assignment based on who initiates the connection
+                            // SIMPLIFIED: Only the player with smaller ID initiates connection
+                            // Role assignment will be handled automatically by PeerJS callbacks
                             if (localPeerId < opponentRawPeerId) {
-                                // I will be the HOST (Player 0) and initiate connection
-                                console.log("[Matchmaking] I'm the HOST (Player 0) - will initiate connection");
-                                state.setIAmPlayer1InRemote(true); // I am the host (P1 in network terms)
-                                state.setMyPlayerIdInRemoteGame(0); // But Player 0 in game terms
-                                
-                                // Set up initial player data with me as Player 0
-                                state.setPlayersData([
-                                    {id: 0, name: myName, icon: myIcon, color: myColor, score: 0},
-                                    {id: 1, name: "Oponente Remoto", icon: "❓", color: state.DEFAULT_PLAYER_COLORS[1], score: 0}
-                                ]);
-                                state.setRemotePlayersData([...state.playersData]);
-                                ui.updateScoresDisplay();
-
-                                // Connect as host
+                                console.log("[Matchmaking] I will initiate connection (smaller ID)");
                                 peerConnection.connectToDiscoveredPeer(opponentRawPeerId);
                             } else {
-                                // I will be the JOINER (Player 1) and wait for connection
-                                console.log("[Matchmaking] I'm the JOINER (Player 1) - will wait for connection");
-                                state.setIAmPlayer1InRemote(false); // I am not the host
-                                state.setMyPlayerIdInRemoteGame(1); // I am Player 1 in game terms
-                                
-                                // Set up initial player data with me as Player 1
-                                state.setPlayersData([
-                                    {id: 0, name: "Oponente Remoto", icon: "❓", color: state.DEFAULT_PLAYER_COLORS[0], score: 0},
-                                    {id: 1, name: myName, icon: myIcon, color: myColor, score: 0}
-                                ]);
-                                state.setRemotePlayersData([...state.playersData]);
-                                ui.updateScoresDisplay();
-
-                                // Set network state and wait for incoming connection
+                                console.log("[Matchmaking] I will wait for incoming connection (larger ID)");
+                                // Just set network state and wait - roles will be set by onNewConnection
                                 state.setPvpRemoteActive(true);
-                                state.setGamePaired(false);
                                 ui.updateGameModeUI();
                                 ui.updateMessageArea("Esperando conexión del oponente...");
                             }

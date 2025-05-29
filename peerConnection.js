@@ -381,8 +381,15 @@ export function connectToDiscoveredPeer(opponentRawPeerId) {
     }
     if (window.peerJsMultiplayer?.connect) {
         console.log(`[PeerJS] Attempting to connect to discovered peer: ${opponentRawPeerId}`);
+        
+        // CRITICAL: Set role as HOST since I'm initiating the connection
         state.setPvpRemoteActive(true);
+        state.setIAmPlayer1InRemote(true);  // I am the network host
+        state.setMyPlayerIdInRemoteGame(0); // I am Player 0 in the game
         state.setCurrentHostPeerId(opponentRawPeerId);
+        
+        console.log(`[PeerJS] connectToDiscoveredPeer: Set myself as HOST (Player 0)`);
+        
         window.peerJsMultiplayer.connect(opponentRawPeerId);
     } else {
         console.error("connectToDiscoveredPeer: peerJsMultiplayer.connect not found.");
