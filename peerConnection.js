@@ -1,9 +1,9 @@
 // peerConnection.js
 
 import * as state from './state.js';
-import *ui from './ui.js';
-import *as gameLogic from './gameLogic.js';
-import *as matchmaking from './matchmaking_supabase.js'; // For potential interaction like updating room status
+import * as ui from './ui.js';
+import * as gameLogic from './gameLogic.js';
+import * as matchmaking from './matchmaking_supabase.js';
 
 const CAJITAS_BASE_URL = "https://cajitas.martinez.fyi"; // Or your game's URL
 
