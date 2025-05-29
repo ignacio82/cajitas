@@ -67,7 +67,7 @@ export async function joinQueue(localRawPeerId, myPlayerData, preferences, callb
             .eq('game_type', 'cajitas') // Match game type
             // .gte('max_players', preferences.minPlayers) // Room can hold at least min
             // .lte('max_players', preferences.maxPlayers) // Room doesn't exceed max (more complex pref matching later)
-            .lt('current_players', supabase. විය('max_players')) // Room is not full (current_players < max_players)
+            .filter('current_players', 'lt', 'max_players') // Room is not full (current_players < max_players)
             .order('created_at', { ascending: true }); // Try to fill older rooms first
 
         if (fetchError) {
