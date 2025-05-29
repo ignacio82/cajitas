@@ -36,16 +36,22 @@ const peerJsCallbacks = {
     onNewConnection: (conn) => {
         console.log(`[PeerJS] Incoming connection from ${conn.peer}.`);
         
-        // CRITICAL FIX: If I receive an incoming connection, I am automatically the HOST/JOINER (depending on context)
-        // In random matching, if I receive incoming connection, I should be the JOINER who waits for game_init_data
-        console.log(`[PeerJS] Incoming connection detected - I will be the JOINER (receive game_init_data)`);
+        // CRITICAL FIX: Only override role for random matching, not for intentional hosting
+        // If I'm already set as a host (from initializePeerAsHost), keep that role
+        // Only override to JOINER if this is from random matching (no explicit host setup)
         
-        // Force role to JOINER since I'm receiving the connection
-        state.setIAmPlayer1InRemote(false); // I am NOT the network host
-        state.setMyPlayerIdInRemoteGame(1);  // I am Player 1 in the game
-        state.setPvpRemoteActive(true);
+        if (state.currentHostPeerId && state.currentHostPeerId === state.myPeerId) {
+            // I am an intentional HOST (link sharing) - keep my role
+            console.log(`[PeerJS] I am an intentional HOST (link sharing) - keeping HOST role`);
+        } else {
+            // This is random matching - I should be the JOINER
+            console.log(`[PeerJS] Random matching incoming connection - I will be the JOINER (receive game_init_data)`);
+            state.setIAmPlayer1InRemote(false); // I am NOT the network host
+            state.setMyPlayerIdInRemoteGame(1);  // I am Player 1 in the game
+            state.setPvpRemoteActive(true);
+        }
         
-        // Stop matchmaking search
+        // Stop matchmaking search (applies to both cases)
         console.log(`[PeerJS] Stopping matchmaking search due to incoming connection from ${conn.peer}`);
         matchmaking.stopSearchingDueToIncomingConnection();
         
