@@ -1,7 +1,7 @@
 // gameLogic.js
 
 import * as state from './state.js';
-import *ui from './ui.js';
+import * as ui from './ui.js'; // Fixed import statement
 import * as peerConnection from './peerConnection.js'; // To send moves if client
 import * as sound from './sound.js'; // For sound effects
 

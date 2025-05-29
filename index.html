@@ -16,9 +16,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=5"> {/* Incremented version for potential CSS changes */}
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <link rel="stylesheet" href="style.css?v=5"> <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -82,7 +80,6 @@
             </div>
         </div>
 
-        {/* NEW LOBBY AREA */}
         <div id="lobby-area" class="hidden space-y-4 p-4 bg-purple-50 rounded-lg shadow-md">
             <h2 id="lobby-title" class="text-2xl font-bold text-center text-purple-700">Sala de Espera</h2>
             <div id="lobby-room-id-display" class="text-center text-sm text-gray-600">ID de Sala: <span class="font-semibold text-purple-600">Cargando...</span></div>
@@ -92,17 +89,7 @@
             </div>
 
             <div id="lobby-player-list" class="space-y-2">
-                {/* Player cards will be dynamically inserted here by ui.js */}
-                {/* Example Player Card Structure (for reference in ui.js):
-                <div class="player-lobby-card flex items-center justify-between p-3 bg-white rounded-lg shadow" style="border-left: 5px solid #COLOR;">
-                    <div class="flex items-center">
-                        <span class="text-2xl mr-2">ICON</span>
-                        <span class="font-semibold text-gray-800">PLAYER_NAME</span>
-                    </div>
-                    <span class="text-sm font-medium rounded-full px-2 py-1 PLAYER_READY_CLASS">READY_STATUS</span>
                 </div>
-                */}
-            </div>
             
             <div id="lobby-message-area" class="text-center text-pink-600 font-medium min-h-[20px]"></div>
 
@@ -117,8 +104,7 @@
         <div id="game-area" class="hidden">
             <div id="info-panel" class="mb-4 p-3 bg-pink-50 rounded-lg shadow">
                 <div id="player-turn" class="text-xl font-bold text-center mb-2"></div>
-                <div id="scores" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-center"> {/* Adjusted grid for up to 4 players */}
-                </div>
+                <div id="scores" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-center"> </div>
             </div>
 
             <div class="aspect-square w-full max-w-xl mx-auto bg-purple-100 rounded-md overflow-hidden shadow-inner">
@@ -134,8 +120,7 @@
                 <button id="reset-game-btn" class="btn-accent">
                     Juego Nuevo 💖
                 </button>
-                {/* In-game "Leave Network Game" button might be useful later */}
-            </div>
+                </div>
         </div>
     </div>
 
@@ -147,7 +132,5 @@
         </div>
     </div>
 
-    <script src="peerjs-multiplayer.js?v=4"></script> {/* Incremented version */}
-    <script type="module" src="main.js?v=4"></script> {/* Incremented version */}
-</body>
+    <script src="peerjs-multiplayer.js?v=4"></script> <script type="module" src="main.js?v=4"></script> </body>
 </html>
