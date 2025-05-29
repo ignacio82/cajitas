@@ -1,7 +1,7 @@
 // peerConnection.js
 
 import * as state from './state.js';
-import * as ui from './ui.js';
+import * as ui from './ui.js'; // Will use ui.getNextAvailableColor
 import * as gameLogic from './gameLogic.js';
 import * as matchmaking from './matchmaking_supabase.js';
 
@@ -57,7 +57,7 @@ const peerJsCallbacks = {
 
                 if (!state.networkRoomData || !state.networkRoomData.players || !state.networkRoomData.players[0]) {
                     console.error('[PeerConn] Global onPeerOpen Error: networkRoomData or players array/players[0] not initialized for host!');
-                    ui.showModalMessage("Error crítico al crear la sala: Faltan datos del anfitrión (P0G-5).");
+                    ui.showModalMessage("Error crítico al crear la sala: Faltan datos del anfitrión (P0G-ColorFix-2).");
                     if (state.networkRoomData._setupErrorCallback) {
                         state.networkRoomData._setupErrorCallback(new Error("networkRoomData or players array/players[0] not initialized for host in global onPeerOpen"));
                         delete state.networkRoomData._setupCompleteCallback;
@@ -343,14 +343,26 @@ function handleLeaderDataReception(data, fromPeerId) {
                 connections.set(fromPeerId, { ...connEntryWrapper, status: 'rejected' }); 
                 return;
             }
+            
+            const takenColors = state.networkRoomData.players.map(p => p.color);
+            let requestedColor = data.playerData.color;
+            let assignedColor = requestedColor;
+            let colorWasChanged = false;
+
+            if (takenColors.includes(requestedColor)) {
+                assignedColor = ui.getNextAvailableColor(takenColors); // Use helper from ui.js
+                colorWasChanged = true;
+                console.log(`[PeerConn L] Player requested color ${requestedColor} but it's taken. Assigning ${assignedColor} instead.`);
+            }
+            
             const newPlayerId = state.networkRoomData.players.length; 
 
             const newPlayer = {
-                name: data.playerData.name,
-                icon: data.playerData.icon,
-                color: data.playerData.color, 
                 id: newPlayerId,
                 peerId: fromPeerId,
+                name: data.playerData.name,
+                icon: data.playerData.icon,
+                color: assignedColor, // Use the determined assignedColor
                 isReady: false,
                 isConnected: true,
                 score: 0
@@ -362,7 +374,9 @@ function handleLeaderDataReception(data, fromPeerId) {
             sendDataToClient(fromPeerId, {
                 type: MSG_TYPE.JOIN_ACCEPTED,
                 yourPlayerId: newPlayerId,
-                roomData: state.networkRoomData 
+                roomData: state.networkRoomData, 
+                yourAssignedColor: assignedColor, // Send assigned color to client
+                colorChanged: colorWasChanged      // Inform client if color was changed
             });
 
             broadcastToRoom({ type: MSG_TYPE.PLAYER_JOINED, player: newPlayer }, fromPeerId); 
@@ -448,6 +462,21 @@ function handleClientDataReception(data, fromLeaderPeerId) {
             ui.hideModalMessage();
             const myLocalInitialData = state.networkRoomData.players.find(p => p.peerId === state.myPeerId);
             const myDataFromServer = data.roomData.players.find(p => p.id === data.yourPlayerId);
+            let finalAssignedColor = data.yourAssignedColor; // Color assigned by leader
+
+            // Update my player object within networkRoomData.players with the definitive data from the leader
+            const updatedPlayersList = data.roomData.players.map(p => {
+                if (p.id === data.yourPlayerId && myDataFromServer) {
+                    const baseData = { ...myDataFromServer }; // Start with what server sent for my player ID
+                    if (myLocalInitialData) { // Overlay my initial customizations if they existed
+                        baseData.name = myLocalInitialData.name || myDataFromServer.name;
+                        baseData.icon = myLocalInitialData.icon || myDataFromServer.icon;
+                    }
+                    baseData.color = finalAssignedColor; // CRITICAL: Use the color assigned by leader
+                    return baseData;
+                }
+                return p;
+            });
 
             state.setNetworkRoomData({
                 myPlayerIdInRoom: data.yourPlayerId,
@@ -456,26 +485,30 @@ function handleClientDataReception(data, fromLeaderPeerId) {
                 roomState: 'lobby',
                 leaderPeerId: data.roomData.leaderPeerId || state.networkRoomData.leaderPeerId,
                 roomId: data.roomData.roomId || state.networkRoomData.roomId,
-                players: data.roomData.players.map(p => {
-                    if (p.id === data.yourPlayerId && myDataFromServer && myLocalInitialData) {
-                        return {
-                            ...myDataFromServer, 
-                            name: myLocalInitialData.name, 
-                            icon: myLocalInitialData.icon,
-                            color: myLocalInitialData.color, 
-                        };
-                    }
-                    return p;
-                })
+                players: updatedPlayersList
             });
             
+            // Update UI if color was changed by the leader
+            if (data.colorChanged && myLocalInitialData) { // myLocalInitialData.color would be the one I requested
+                console.log(`[PeerConn C] Server assigned different color: ${finalAssignedColor} (I requested: ${myLocalInitialData.color})`);
+                const colorInput = document.getElementById('player-color-0'); 
+                if (colorInput) {
+                    colorInput.value = finalAssignedColor;
+                    // Dispatch 'input' event to trigger UI updates dependent on the color input (e.g., card border)
+                    colorInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+                 ui.updateLobbyMessage(`¡Te uniste a la sala! Tu color fue cambiado a ${finalAssignedColor} porque el original ya estaba en uso.`);
+            } else {
+                ui.updateLobbyMessage("¡Te uniste a la sala! Marcate como listo cuando quieras.");
+            }
+            
             ui.showLobbyScreen();
-            ui.updateLobbyUI();
+            ui.updateLobbyUI(); // This will now use the updated players list with correct colors
             ui.updateGameModeUI();
-            console.log(`[PeerConn C] Joined room! My Player ID: ${data.yourPlayerId}. Room Data:`, state.networkRoomData);
-            ui.updateLobbyMessage("¡Te uniste a la sala! Marcate como listo cuando quieras.");
+            console.log(`[PeerConn C] Joined room! My Player ID: ${data.yourPlayerId}. My Color: ${finalAssignedColor}. Full Room Data:`, state.networkRoomData);
             break;
 
+        // ... (rest of handleClientDataReception cases remain the same as Turn 52) ...
         case MSG_TYPE.JOIN_REJECTED:
             ui.showModalMessage(`No se pudo unir a la sala: ${data.reason || 'Rechazado por el líder.'}`);
             leaveRoom(); 
@@ -579,7 +612,7 @@ function handleClientDataReception(data, fromLeaderPeerId) {
 }
 
 
-export function ensurePeerInitialized(callbacks = {}) { // Expect an object for callbacks
+export function ensurePeerInitialized(callbacks = {}) { 
     const onSuccessThisCall = (typeof callbacks.onPeerOpen === 'function') ? callbacks.onPeerOpen : null;
     const onErrorThisCall = (typeof callbacks.onError === 'function') ? callbacks.onError : null;
 
@@ -678,7 +711,7 @@ export function hostNewRoom(hostPlayerData, gameSettings, isRandomMatchHost = fa
         
         ui.showModalMessage("Creando sala de juego...");
 
-        ensurePeerInitialized({ // Pass callbacks as an object
+        ensurePeerInitialized({ 
             onPeerOpen: (hostPeerId) => { 
                 console.log(`[PeerConn] hostNewRoom's ensurePeerInitialized customOnSuccess for PeerID: ${hostPeerId}. Global onPeerOpen is expected to handle full setup and promise resolution.`);
             },
@@ -718,7 +751,7 @@ export function joinRoomById(leaderPeerIdToJoin, joinerPlayerData) {
     });
     ui.showModalMessage(`Intentando conectar a la sala ${state.CAJITAS_PEER_ID_PREFIX}${leaderPeerIdToJoin}...`);
 
-    ensurePeerInitialized({ // Pass callbacks as an object
+    ensurePeerInitialized({ 
         onPeerOpen: (myPeerId) => { 
             console.log(`[PeerConn] joinRoomById's ensurePeerInitialized customOnSuccess for PeerID: ${myPeerId}. Global onPeerOpen will handle connection attempt.`);
             if (state.networkRoomData.players && state.networkRoomData.players[0] && state.networkRoomData.players[0].peerId === null) {
@@ -771,7 +804,7 @@ export function handleLeaderLocalMove(moveDetails, boxesCompletedCount) {
         state.incrementTurnCounter(); 
     } else {
         console.error("[PeerConn] FATAL: state.incrementTurnCounter is not a function during leader's local move!");
-        return; // Cannot proceed without turn counter
+        return; 
     }
 
     const gameMoveMessage = {

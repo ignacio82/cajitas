@@ -1,6 +1,7 @@
 // ui.js
 
 import * as state from './state.js';
+import { DEFAULT_PLAYER_COLORS } from './state.js'; // Import for color logic
 
 // ---------- DOM ELEMENT REFERENCES ----------
 export const mainTitle = document.getElementById('main-title');
@@ -58,7 +59,7 @@ export function showSetupScreen() {
     if (gameArea) gameArea.classList.add('hidden');
     if (lobbyArea) lobbyArea.classList.add('hidden');
     if (mainTitle) mainTitle.textContent = "Cajitas de Danielle";
-    hideNetworkInfo(); // Use new function to hide QR/Network info
+    hideNetworkInfo(); 
     updateGameModeUI(); 
 }
 
@@ -67,7 +68,6 @@ export function showLobbyScreen() {
     if (gameArea) gameArea.classList.add('hidden');
     if (lobbyArea) lobbyArea.classList.remove('hidden');
     if (mainTitle) mainTitle.textContent = "Sala de Espera";
-    // QR code visibility is handled by displayQRCode and hideNetworkInfo explicitly
 }
 
 export function showGameScreen() {
@@ -75,27 +75,27 @@ export function showGameScreen() {
     if (gameArea) gameArea.classList.remove('hidden');
     if (lobbyArea) lobbyArea.classList.add('hidden');
     if (mainTitle) mainTitle.textContent = "¡A Jugar!";
-    hideNetworkInfo(); // Use new function to hide QR/Network info
+    hideNetworkInfo(); 
 }
 
 // ---------- LOBBY UI FUNCTIONS ----------
 
 export function updateLobbyUI(roomData = state.networkRoomData) {
-    if (!lobbyArea || lobbyArea.classList.contains('hidden')) return;
+    if (!lobbyArea || lobbyArea.classList.contains('hidden') || !roomData) return;
 
     if (lobbyRoomIdDisplay) {
         const roomIdSpan = lobbyRoomIdDisplay.querySelector('span');
         if (roomIdSpan) roomIdSpan.textContent = roomData.roomId ? `${state.CAJITAS_PEER_ID_PREFIX}${roomData.roomId}` : 'N/A';
     }
-    if (lobbyBoardSize) lobbyBoardSize.textContent = `${roomData.gameSettings.rows}x${roomData.gameSettings.cols}`;
-    if (lobbyPlayerCount) lobbyPlayerCount.textContent = `${roomData.players.length}/${roomData.maxPlayers}`;
+    if (lobbyBoardSize && roomData.gameSettings) lobbyBoardSize.textContent = `${roomData.gameSettings.rows}x${roomData.gameSettings.cols}`;
+    if (lobbyPlayerCount && roomData.players) lobbyPlayerCount.textContent = `${roomData.players.length}/${roomData.maxPlayers}`;
 
-    if (lobbyPlayerList) {
+    if (lobbyPlayerList && roomData.players) {
         lobbyPlayerList.innerHTML = ''; 
         roomData.players.forEach(player => {
             const card = document.createElement('div');
             card.className = 'player-lobby-card flex items-center justify-between p-3 bg-white rounded-lg shadow transition-all duration-300 ease-in-out';
-            card.style.borderLeft = `5px solid ${player.color || state.DEFAULT_PLAYER_COLORS[0]}`;
+            card.style.borderLeft = `5px solid ${player.color || DEFAULT_PLAYER_COLORS[0]}`;
             if (player.peerId === state.myPeerId) {
                 card.classList.add('ring-2', 'ring-purple-500');
             }
@@ -135,7 +135,7 @@ export function updateLobbyUI(roomData = state.networkRoomData) {
         });
     }
 
-    if (lobbyToggleReadyBtn) {
+    if (lobbyToggleReadyBtn && roomData.players) {
         const myPlayerData = roomData.players.find(p => p.peerId === state.myPeerId);
         if (myPlayerData) {
             lobbyToggleReadyBtn.textContent = myPlayerData.isReady ? 'Marcar como NO Listo ❌' : 'Marcar como Listo 👍';
@@ -146,12 +146,20 @@ export function updateLobbyUI(roomData = state.networkRoomData) {
         lobbyToggleReadyBtn.disabled = roomData.roomState === 'in_game';
     }
 
-    if (lobbyStartGameLeaderBtn) {
+    if (lobbyStartGameLeaderBtn && roomData.players) {
         const allConnectedAndReady = roomData.players.length >= state.MIN_PLAYERS_NETWORK &&
                                    roomData.players.every(p => p.isReady && p.isConnected);
         lobbyStartGameLeaderBtn.style.display = roomData.isRoomLeader && roomData.roomState !== 'in_game' ? 'block' : 'none';
         lobbyStartGameLeaderBtn.disabled = !allConnectedAndReady;
         lobbyStartGameLeaderBtn.title = !allConnectedAndReady ? `Se necesitan ${state.MIN_PLAYERS_NETWORK}-${roomData.maxPlayers} jugadores listos.` : 'Iniciar el juego para todos';
+    }
+    
+    // Optional: Update available colors for non-leader clients in the lobby
+    if (!roomData.isRoomLeader && roomData.players) {
+        const takenColors = roomData.players
+            .filter(p => p.peerId !== state.myPeerId) // Colors taken by OTHERS
+            .map(p => p.color);
+        updateAvailableColors(takenColors);
     }
 }
 
@@ -162,7 +170,7 @@ export function updateLobbyMessage(message, isError = false) {
 }
 
 // ---------- GENERAL UI UPDATE FUNCTIONS ----------
-
+// ... (updatePlayerTurnDisplay, updateScoresDisplay, updateMessageArea, setBoardClickable, modal functions remain unchanged)
 export function updatePlayerTurnDisplay() {
     if (!playerTurnDisplay) return;
     if (!state.gameActive || !state.playersData || state.playersData.length === 0) {
@@ -306,7 +314,7 @@ export function generatePlayerSetupFields(count, forNetwork = false) {
     for (let i = 0; i < maxCustomize; i++) {
         const card = document.createElement('div');
         card.className = 'player-setup-card';
-        card.style.borderColor = state.DEFAULT_PLAYER_COLORS[i % state.DEFAULT_PLAYER_COLORS.length];
+        card.style.borderColor = DEFAULT_PLAYER_COLORS[i % DEFAULT_PLAYER_COLORS.length];
 
         const nameLabel = document.createElement('label');
         nameLabel.htmlFor = `player-name-${i}`;
@@ -336,18 +344,18 @@ export function generatePlayerSetupFields(count, forNetwork = false) {
         const colorInput = document.createElement('input');
         colorInput.type = 'color';
         colorInput.id = `player-color-${i}`;
-        colorInput.value = state.DEFAULT_PLAYER_COLORS[i % state.DEFAULT_PLAYER_COLORS.length];
+        colorInput.value = DEFAULT_PLAYER_COLORS[i % DEFAULT_PLAYER_COLORS.length];
         colorInput.addEventListener('input', (e) => {
-            card.style.borderColor = e.target.value;
+            if (card) card.style.borderColor = e.target.value;
         });
 
         card.append(nameLabel, nameInput, iconLabel, iconSelect, colorLabel, colorInput);
         playerCustomizationArea.appendChild(card);
     }
-    if (forNetwork && count > 1) {
+    if (forNetwork && count > 1) { // This condition seems to imply more than 1 player for network setup, but usually it's 1 for self.
         const infoText = document.createElement('p');
         infoText.className = 'text-sm text-gray-600 mt-2';
-        infoText.textContent = `Personalizarás tus datos. Los demás jugadores (${count-1}) se unirán en la sala.`;
+        infoText.textContent = `Personalizarás tus datos. Los demás jugadores (${count-1}) se unirán en la sala.`; // This message might be confusing if count is always 1 for network.
         playerCustomizationArea.appendChild(infoText);
     }
 }
@@ -516,22 +524,14 @@ export function removeFilledBoxFromBoard(br, bc) {
         setTimeout(() => { if (textElement.parentNode) textElement.remove(); }, 300);
     }
 }
+
 // ---------- NETWORK UI FUNCTIONS (QR, Info Area) ----------
 
-/**
- * Hide the QR/link area.
- */
 export function hideNetworkInfo() {
   if (networkInfoArea) networkInfoArea.classList.add('hidden');
-  if (qrCodeContainer) qrCodeContainer.innerHTML = ''; // Clear QR code content
+  if (qrCodeContainer) qrCodeContainer.innerHTML = ''; 
 }
 
-/**
- * Draw a QR code + copy-link button
- * @param {string} gameLink  The link you want to share
- * @param {string} displayId The human-readable ID for display
- * @param {string} message   The instructional message
- */
 export function displayQRCode(gameLink, displayId, message = "Compartí este enlace o ID para que se unan a tu sala:") {
     if (!networkInfoArea || !qrCodeContainer || !copyGameIdButton || !networkInfoTitle || !networkInfoText) {
         console.error("[UI] QR Code or Network Info Area elements not found!");
@@ -541,23 +541,20 @@ export function displayQRCode(gameLink, displayId, message = "Compartí este enl
     if (!window.QRious) {
         console.warn('[UI] QRious library not loaded.');
         showModalMessage(`ID de Sala: ${displayId}. Enlace: ${gameLink}. (Error QR Lib)`);
-        networkInfoText.textContent = `ID: ${displayId}. Link: ${gameLink}`; // Show basic info if QR lib fails
-        if (networkInfoArea) networkInfoArea.classList.remove('hidden'); // Still try to show the text info
+        if (networkInfoText) networkInfoText.textContent = `ID: ${displayId}. Link: ${gameLink}`; 
+        if (networkInfoArea) networkInfoArea.classList.remove('hidden'); 
         return;
     }
 
     console.log("[UI] displayQRCode: Making network info area visible and populating QR code");
     
-    // CRITICAL: Ensure the area is visible FIRST
     if (networkInfoArea) networkInfoArea.classList.remove('hidden');
-    if (networkInfoTitle) networkInfoTitle.textContent = "¡Sala Creada!"; // Consistent title
+    if (networkInfoTitle) networkInfoTitle.textContent = "¡Sala Creada!"; 
     if (networkInfoText) networkInfoText.textContent = `${message} ID: ${displayId}`;
 
-
-    // Force a style recalculation to ensure visibility if issues persist
     if (networkInfoArea) networkInfoArea.offsetHeight; 
 
-    if (qrCodeContainer) qrCodeContainer.innerHTML = ''; // Clear previous QR
+    if (qrCodeContainer) qrCodeContainer.innerHTML = ''; 
     const canvas = document.createElement('canvas');
     try {
         new QRious({
@@ -588,7 +585,6 @@ export function displayQRCode(gameLink, displayId, message = "Compartí este enl
         };
     }
 
-    // Double-check visibility after setup
     if (networkInfoArea && networkInfoArea.classList.contains('hidden')) {
         console.warn("[UI] Network info area was hidden after setup - forcing visible");
         networkInfoArea.classList.remove('hidden');
@@ -596,10 +592,6 @@ export function displayQRCode(gameLink, displayId, message = "Compartí este enl
 }
 
 export function updateGameModeUI() {
-    // This function now primarily controls visibility of setup vs lobby vs game
-    // and enables/disables form inputs.
-    // QR code / network-info-area visibility is handled by displayQRCode and hideNetworkInfo.
-
     const inLobby = lobbyArea && !lobbyArea.classList.contains('hidden');
     const disableSetup = inLobby || state.pvpRemoteActive;
 
@@ -624,12 +616,12 @@ export function updateGameModeUI() {
         cancelMatchmakingButton.style.display = isMatchmaking ? 'inline-block' : 'none';
 
         if (isMatchmaking) {
-            networkInfoArea.classList.remove('hidden'); // Show the area for matchmaking message
+            networkInfoArea.classList.remove('hidden'); 
             networkInfoTitle.textContent = "Buscando Partida...";
             networkInfoText.textContent = "Intentando encontrar oponentes al azar...";
-            qrCodeContainer.innerHTML = ''; // No QR for random matchmaking search
+            qrCodeContainer.innerHTML = ''; 
         } else {
-            // If not matchmaking, and not actively showing a created room, hide the matchmaking-specific message.
+            // If not matchmaking, hide the matchmaking-specific message.
             // displayQRCode and hideNetworkInfo will manage the area for actual room links.
             if (networkInfoTitle.textContent === "Buscando Partida...") {
                 hideNetworkInfo(); 
@@ -639,6 +631,69 @@ export function updateGameModeUI() {
 
     if (undoBtn) undoBtn.disabled = state.pvpRemoteActive || !state.lastMoveForUndo;
 }
+
+/**
+ * Helper to get the next available color based on currently taken colors.
+ * Used by the leader in peerConnection.js to assign colors.
+ */
+export function getNextAvailableColor(takenColors = []) {
+    // First try to find an available default color
+    const availableDefault = DEFAULT_PLAYER_COLORS.find(color => !takenColors.includes(color));
+    if (availableDefault) return availableDefault;
+    
+    // If all defaults are taken, generate a random color
+    // Ensure it's not already taken (though unlikely with full hex range)
+    let newColor;
+    let attempts = 0;
+    do {
+        newColor = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+        attempts++;
+    } while (takenColors.includes(newColor) && attempts < 20); // Limit attempts to avoid infinite loop
+    
+    if (takenColors.includes(newColor)) { // Extremely unlikely fallback if all random attempts also taken
+        return `#${Math.floor(Math.random()*9)}${Math.floor(Math.random()*9)}${Math.floor(Math.random()*9)}${Math.floor(Math.random()*9)}${Math.floor(Math.random()*9)}${Math.floor(Math.random()*9)}`;
+    }
+    return newColor;
+}
+
+
+/**
+ * Updates the local player's color picker UI dynamically based on taken colors.
+ * This is more of a UI enhancement for the client.
+ */
+export function updateAvailableColors(takenColors = []) {
+    const colorInput = document.getElementById('player-color-0'); // Assumes client customization is always 'player-color-0'
+    if (!colorInput) return;
+    
+    const card = colorInput.closest('.player-setup-card');
+    
+    // For now, this function primarily serves to auto-update the input if current color is taken.
+    // A full datalist implementation for color pickers can be complex.
+    // The main logic for color assignment happens on the leader side.
+    // Client UI is updated based on JOIN_ACCEPTED message.
+
+    // If the current color in the input is taken (and it's not our *assigned* color from the server yet)
+    // this function could suggest a new one. However, the primary update path for color
+    // for a client is via the JOIN_ACCEPTED message in peerConnection.js which directly sets colorInput.value.
+    // This function could be used if the user is in the lobby and the color picker is still active,
+    // to prevent them from picking a color that just got taken by another joining player (if a ROOM_STATE_UPDATE shows it).
+
+    // Example: If current selected color is now taken by someone else (and not by me via server assignment)
+    if (takenColors.includes(colorInput.value)) {
+        const myCurrentAssignedColor = state.networkRoomData?.players?.find(p => p.peerId === state.myPeerId)?.color;
+        if (colorInput.value !== myCurrentAssignedColor) { // If my input doesn't match my actual assigned color
+            console.log(`[UI] My color picker shows ${colorInput.value}, but it's taken by another. Suggesting new one.`);
+            const newSuggestedColor = getNextAvailableColor(takenColors);
+            if (newSuggestedColor) {
+                colorInput.value = newSuggestedColor;
+                if (card) card.style.borderColor = newSuggestedColor;
+                // Optionally, inform the user their *selection* would conflict if they haven't joined yet.
+                // But this is usually handled by server assignment on join.
+            }
+        }
+    }
+}
+
 
 // Initial call to set up player fields for local game as default
 document.addEventListener('DOMContentLoaded', () => {
