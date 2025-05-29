@@ -12,7 +12,8 @@ export const undoBtn = document.getElementById('undo-btn');
 
 export const rowsInput = document.getElementById('rows');
 export const colsInput = document.getElementById('cols');
-export const numPlayersInput = document.getElementById('num-players-input');
+export const numPlayersInput = document.getElementById('num-players-input'); // For local games
+export const networkMaxPlayersSelect = document.getElementById('network-max-players'); // For hosting network games
 export const playerCustomizationArea = document.getElementById('player-customization-area');
 
 export const playerTurnDisplay = document.getElementById('player-turn');
@@ -23,48 +24,176 @@ export const messageArea = document.getElementById('message-area');
 export const customModal = document.getElementById('custom-modal');
 export const modalMessageText = document.getElementById('modal-message-text');
 export const modalCloseBtn = document.getElementById('modal-close-btn');
+export const modalDynamicButtons = document.getElementById('modal-dynamic-buttons');
+
 
 export const hostGameButton = document.getElementById('host-cajitas-btn');
 export const playRandomButton = document.getElementById('play-random-cajitas-btn');
 
+export const networkInfoArea = document.getElementById('network-info-area');
+export const networkInfoTitle = document.getElementById('network-info-title');
 export const qrCodeContainer = document.getElementById('qr-code-container');
+export const networkInfoText = document.getElementById('network-info-text');
 export const copyGameIdButton = document.getElementById('copy-game-id-btn');
 export const cancelMatchmakingButton = document.getElementById('cancel-matchmaking-btn');
 
+// Lobby Area Elements
+export const lobbyArea = document.getElementById('lobby-area');
+export const lobbyTitle = document.getElementById('lobby-title');
+export const lobbyRoomIdDisplay = document.getElementById('lobby-room-id-display');
+export const lobbyGameSettingsDisplay = document.getElementById('lobby-game-settings-display');
+export const lobbyBoardSize = document.getElementById('lobby-board-size');
+export const lobbyPlayerCount = document.getElementById('lobby-player-count');
+export const lobbyPlayerList = document.getElementById('lobby-player-list');
+export const lobbyMessageArea = document.getElementById('lobby-message-area');
+export const lobbyToggleReadyBtn = document.getElementById('lobby-toggle-ready-btn');
+export const lobbyStartGameLeaderBtn = document.getElementById('lobby-start-game-leader-btn');
+export const lobbyLeaveRoomBtn = document.getElementById('lobby-leave-room-btn');
 
-// ---------- UI UPDATE FUNCTIONS ----------
+
+// ---------- UI STATE SWITCHING FUNCTIONS ----------
 
 export function showSetupScreen() {
     if (setupSection) setupSection.classList.remove('hidden');
     if (gameArea) gameArea.classList.add('hidden');
-    if (mainTitle) mainTitle.textContent = "Cajitas de Dani";
+    if (lobbyArea) lobbyArea.classList.add('hidden');
+    if (mainTitle) mainTitle.textContent = "Cajitas de Danielle";
     hideQRCode();
+    updateGameModeUI(); // Ensure correct buttons are shown/hidden
+}
+
+export function showLobbyScreen() {
+    if (setupSection) setupSection.classList.add('hidden');
+    if (gameArea) gameArea.classList.add('hidden');
+    if (lobbyArea) lobbyArea.classList.remove('hidden');
+    if (mainTitle) mainTitle.textContent = "Sala de Espera";
+    hideQRCode(); // QR code is usually for sharing before lobby, or handled within lobby UI if needed
+    // updateLobbyUI will be called to populate details
 }
 
 export function showGameScreen() {
     if (setupSection) setupSection.classList.add('hidden');
     if (gameArea) gameArea.classList.remove('hidden');
+    if (lobbyArea) lobbyArea.classList.add('hidden');
     if (mainTitle) mainTitle.textContent = "¡A Jugar!";
     hideQRCode();
 }
 
+// ---------- LOBBY UI FUNCTIONS ----------
+
+export function updateLobbyUI(roomData = state.networkRoomData) {
+    if (!lobbyArea || lobbyArea.classList.contains('hidden')) return;
+
+    if (lobbyRoomIdDisplay) {
+        const roomIdSpan = lobbyRoomIdDisplay.querySelector('span');
+        if (roomIdSpan) roomIdSpan.textContent = roomData.roomId ? `${state.CAJITAS_PEER_ID_PREFIX}${roomData.roomId}` : 'N/A';
+    }
+    if (lobbyBoardSize) lobbyBoardSize.textContent = `${roomData.gameSettings.rows}x${roomData.gameSettings.cols}`;
+    if (lobbyPlayerCount) lobbyPlayerCount.textContent = `${roomData.players.length}/${roomData.maxPlayers}`;
+
+    if (lobbyPlayerList) {
+        lobbyPlayerList.innerHTML = ''; // Clear existing player cards
+        roomData.players.forEach(player => {
+            const card = document.createElement('div');
+            card.className = 'player-lobby-card flex items-center justify-between p-3 bg-white rounded-lg shadow transition-all duration-300 ease-in-out';
+            card.style.borderLeft = `5px solid ${player.color || state.DEFAULT_PLAYER_COLORS[0]}`;
+            if (player.peerId === state.myPeerId) {
+                card.classList.add('ring-2', 'ring-purple-500');
+            }
+
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'flex items-center';
+
+            const iconSpan = document.createElement('span');
+            iconSpan.className = 'text-2xl mr-2';
+            iconSpan.textContent = player.icon || '❓';
+
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'font-semibold text-gray-800';
+            nameSpan.textContent = player.name || `Jugador ${player.id + 1}`;
+            if (player.peerId === roomData.leaderPeerId) {
+                nameSpan.textContent += ' 👑 (Líder)';
+            }
+            if (player.peerId === state.myPeerId) {
+                nameSpan.textContent += ' (Vos)';
+            }
+
+
+            infoDiv.append(iconSpan, nameSpan);
+
+            const readySpan = document.createElement('span');
+            readySpan.className = 'text-xs sm:text-sm font-medium rounded-full px-2 py-1 transition-colors duration-300';
+            if (player.isConnected) {
+                readySpan.textContent = player.isReady ? '✔️ Listo' : '⏳ Esperando';
+                readySpan.classList.add(player.isReady ? 'bg-green-100' : 'bg-yellow-100');
+                readySpan.classList.add(player.isReady ? 'text-green-700' : 'text-yellow-700');
+            } else {
+                readySpan.textContent = '❌ Desconectado';
+                readySpan.classList.add('bg-red-100', 'text-red-700');
+            }
+
+            card.append(infoDiv, readySpan);
+            lobbyPlayerList.appendChild(card);
+        });
+    }
+
+    if (lobbyToggleReadyBtn) {
+        const myPlayerData = roomData.players.find(p => p.peerId === state.myPeerId);
+        if (myPlayerData) {
+            lobbyToggleReadyBtn.textContent = myPlayerData.isReady ? 'Marcar como NO Listo ❌' : 'Marcar como Listo 👍';
+            lobbyToggleReadyBtn.classList.toggle('bg-red-500', myPlayerData.isReady); // Example for "not ready" state
+            lobbyToggleReadyBtn.classList.toggle('hover:bg-red-600', myPlayerData.isReady);
+            lobbyToggleReadyBtn.classList.toggle('btn-secondary', !myPlayerData.isReady); // Default "ready" state
+
+        }
+        lobbyToggleReadyBtn.disabled = roomData.roomState === 'in_game';
+    }
+
+    if (lobbyStartGameLeaderBtn) {
+        const allConnectedAndReady = roomData.players.length >= state.MIN_PLAYERS_NETWORK &&
+                                   roomData.players.every(p => p.isReady && p.isConnected);
+        lobbyStartGameLeaderBtn.style.display = roomData.isRoomLeader && roomData.roomState !== 'in_game' ? 'block' : 'none';
+        lobbyStartGameLeaderBtn.disabled = !allConnectedAndReady;
+        lobbyStartGameLeaderBtn.title = !allConnectedAndReady ? `Se necesitan ${state.MIN_PLAYERS_NETWORK}-${roomData.maxPlayers} jugadores listos.` : 'Iniciar el juego para todos';
+    }
+    
+    // You might want to update lobbyMessageArea based on roomState or specific events
+    // Example: if (roomData.roomState === 'ready_check') updateLobbyMessage("¡Todos listos! El líder puede iniciar el juego.");
+}
+
+export function updateLobbyMessage(message, isError = false) {
+    if (!lobbyMessageArea) return;
+    lobbyMessageArea.textContent = message;
+    lobbyMessageArea.style.color = isError ? 'red' : '#D946EF'; // A vibrant pink/purple
+}
+
+
+// ---------- GENERAL UI UPDATE FUNCTIONS ----------
+
 export function updatePlayerTurnDisplay() {
     if (!playerTurnDisplay) return;
-    if (!state.gameActive || !state.playersData || state.playersData.length === 0 || !state.playersData[state.currentPlayerIndex]) {
+    if (!state.gameActive || !state.playersData || state.playersData.length === 0) {
         playerTurnDisplay.innerHTML = '';
         return;
     }
     const currentPlayer = state.playersData[state.currentPlayerIndex];
     if (!currentPlayer) {
-        playerTurnDisplay.innerHTML = '';
+        playerTurnDisplay.innerHTML = 'Turno de: Error';
         return;
     }
     let turnText = `Turno de ${currentPlayer.name} ${currentPlayer.icon}`;
 
     if (state.pvpRemoteActive) {
-        turnText = state.isMyTurnInRemote ?
-            `¡Tu turno, ${currentPlayer.name} ${currentPlayer.icon}!` :
-            `Esperando a ${currentPlayer.name} ${currentPlayer.icon}...`;
+        const myPlayerInRoom = state.networkRoomData.players.find(p => p.id === state.networkRoomData.myPlayerIdInRoom);
+        const isMyTurn = state.networkRoomData.myPlayerIdInRoom === state.currentPlayerIndex;
+
+        if (myPlayerInRoom) {
+            turnText = isMyTurn ?
+                `¡Tu turno, ${currentPlayer.name} ${currentPlayer.icon}!` :
+                `Esperando a ${currentPlayer.name} ${currentPlayer.icon}...`;
+        } else {
+            turnText = `Turno de ${currentPlayer.name} ${currentPlayer.icon} (Observando)`;
+        }
     }
     playerTurnDisplay.innerHTML = `${turnText} <span style="color:${currentPlayer.color}; font-size: 1.5em;">●</span>`;
 }
@@ -72,21 +201,28 @@ export function updatePlayerTurnDisplay() {
 export function updateScoresDisplay() {
     if (!scoresDisplay) return;
     scoresDisplay.innerHTML = '';
-    const playersToDisplay = (state.pvpRemoteActive && state.remotePlayersData && state.remotePlayersData.length > 0) ? state.remotePlayersData : state.playersData;
 
-    if (!playersToDisplay) return;
+    // In network games, state.playersData should be authoritative once the game starts.
+    // It's populated from networkRoomData.players by the leader.
+    const playersToDisplay = state.playersData;
+
+    if (!playersToDisplay || playersToDisplay.length === 0) return;
 
     playersToDisplay.forEach((player) => {
-        if (!player || typeof player.color !== 'string' || player.color.length < 7) {
+        if (!player || typeof player.color !== 'string' || player.color.length < 3) { // Min length for hex
              console.warn("updateScoresDisplay: Invalid player data or color", player);
              return;
         }
         const scoreDiv = document.createElement('div');
         scoreDiv.classList.add('p-2', 'rounded-lg', 'shadow-md', 'text-sm', 'md:text-base');
         try {
+            // Basic check for hex color
+            if (!player.color.startsWith('#')) throw new Error("Color not hex");
             let r_col = parseInt(player.color.slice(1, 3), 16);
             let g_col = parseInt(player.color.slice(3, 5), 16);
             let b_col = parseInt(player.color.slice(5, 7), 16);
+            if (isNaN(r_col) || isNaN(g_col) || isNaN(b_col)) throw new Error("Invalid hex components");
+
             scoreDiv.style.backgroundColor = `rgba(${r_col},${g_col},${b_col},0.3)`;
             scoreDiv.style.border = `2px solid ${player.color}`;
         } catch (e) {
@@ -94,23 +230,23 @@ export function updateScoresDisplay() {
             scoreDiv.style.backgroundColor = `rgba(200,200,200,0.3)`;
             scoreDiv.style.border = `2px solid #888888`;
         }
-        scoreDiv.style.color = player.color;
+        scoreDiv.style.color = player.color; // Text color is the player's solid color
         scoreDiv.style.fontWeight = 'bold';
         scoreDiv.innerHTML = `${player.name || 'Jugador'} ${player.icon || '❓'}: <span class="text-xl md:text-2xl">${player.score !== undefined ? player.score : 0}</span>`;
         scoresDisplay.appendChild(scoreDiv);
     });
 }
 
-export function updateMessageArea(message, isError = false) {
+export function updateMessageArea(message, isError = false, duration = 3000) {
     if (!messageArea) return;
     messageArea.textContent = message;
     messageArea.style.color = isError ? 'red' : '#FF69B4';
-    if (message && !isError) {
+    if (message && !isError && duration > 0) {
         setTimeout(() => {
-            if (messageArea.textContent === message) {
+            if (messageArea.textContent === message) { // Clear only if it hasn't been replaced
                 messageArea.textContent = '';
             }
-        }, 3000);
+        }, duration);
     }
 }
 
@@ -128,69 +264,77 @@ export function setBoardClickable(clickable) {
 }
 
 export function showModalMessage(message) {
-    if (!customModal || !modalMessageText || !modalCloseBtn) return;
+    if (!customModal || !modalMessageText || !modalCloseBtn || !modalDynamicButtons) return;
     modalMessageText.textContent = message;
     customModal.style.display = "block";
     modalCloseBtn.innerHTML = "¡Dale!";
     modalCloseBtn.style.display = 'inline-block';
     modalCloseBtn.onclick = () => hideModalMessage();
-    const dynamicButtonsContainer = document.getElementById('modal-dynamic-buttons');
-    if (dynamicButtonsContainer) {
-        dynamicButtonsContainer.innerHTML = '';
-    }
+    modalDynamicButtons.innerHTML = ''; // Clear dynamic buttons
+    modalDynamicButtons.style.display = 'none';
 }
 
 export function hideModalMessage() {
-    if (!customModal || !modalCloseBtn) return;
+    if (!customModal || !modalCloseBtn || !modalDynamicButtons) return;
     customModal.style.display = "none";
-    modalCloseBtn.style.display = 'inline-block';
+    modalCloseBtn.style.display = 'inline-block'; // Ensure it's visible for next simple modal
+    modalDynamicButtons.style.display = 'none';
 }
 
 export function showModalMessageWithActions(message, actions) {
-    if (!customModal || !modalMessageText || !modalCloseBtn) return;
+    if (!customModal || !modalMessageText || !modalCloseBtn || !modalDynamicButtons) return;
     modalMessageText.textContent = message;
-    modalCloseBtn.style.display = 'none';
+    modalCloseBtn.style.display = 'none'; // Hide default close button
 
-    let dynamicButtonsContainer = document.getElementById('modal-dynamic-buttons');
-    if (!dynamicButtonsContainer && modalMessageText.parentNode) {
-        dynamicButtonsContainer = document.createElement('div');
-        dynamicButtonsContainer.id = 'modal-dynamic-buttons';
-        dynamicButtonsContainer.className = 'mt-4 flex justify-center space-x-4';
-        modalMessageText.parentNode.appendChild(dynamicButtonsContainer);
-    }
-    if (dynamicButtonsContainer) dynamicButtonsContainer.innerHTML = '';
-
+    modalDynamicButtons.innerHTML = ''; // Clear previous buttons
     actions.forEach(actionInfo => {
         const button = document.createElement('button');
         button.textContent = actionInfo.text;
-        button.className = 'bg-pink-500 hover:bg-pink-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md';
+        // Tailwind classes for styling, adjust as needed
+        button.className = 'bg-pink-500 hover:bg-pink-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition-colors';
+        if (actionInfo.isConfirm) { // Example: more prominent confirm button
+             button.classList.replace('bg-pink-500', 'bg-green-500');
+             button.classList.replace('hover:bg-pink-600', 'hover:bg-green-600');
+        }
+         if (actionInfo.isCancel) { // Example: different style for cancel
+             button.classList.replace('bg-pink-500', 'bg-gray-400');
+             button.classList.replace('hover:bg-pink-600', 'hover:bg-gray-500');
+        }
         button.onclick = () => {
             actionInfo.action();
+            // Optionally hide modal automatically, or let action decide
+            // hideModalMessage();
         };
-        dynamicButtonsContainer?.appendChild(button);
+        modalDynamicButtons.appendChild(button);
     });
+    modalDynamicButtons.style.display = 'flex'; // Make sure the container is visible
     customModal.style.display = "block";
 }
 
-export function generatePlayerSetupFields(count) {
+export function generatePlayerSetupFields(count, forNetwork = false) {
     if (!playerCustomizationArea) return;
     playerCustomizationArea.innerHTML = '';
-    for (let i = 0; i < count; i++) {
+
+    const maxCustomize = forNetwork ? 1 : count; // For network, only customize self (P0 initially)
+
+    for (let i = 0; i < maxCustomize; i++) {
         const card = document.createElement('div');
         card.className = 'player-setup-card';
         card.style.borderColor = state.DEFAULT_PLAYER_COLORS[i % state.DEFAULT_PLAYER_COLORS.length];
 
         const nameLabel = document.createElement('label');
         nameLabel.htmlFor = `player-name-${i}`;
-        nameLabel.textContent = `Nombre Jugador/a ${i + 1}:`;
+        nameLabel.textContent = forNetwork ? `Tu Nombre:` : `Nombre Jugador/a ${i + 1}:`;
         const nameInput = document.createElement('input');
         nameInput.type = 'text';
         nameInput.id = `player-name-${i}`;
-        nameInput.value = `Jugador/a ${i + 1}`;
+        nameInput.value = forNetwork ? `Jugador ${state.myPeerId ? state.myPeerId.slice(-4) : (i+1)}` : `Jugador/a ${i + 1}`;
+        nameInput.maxLength = 15;
+
 
         const iconLabel = document.createElement('label');
         iconLabel.htmlFor = `player-icon-${i}`;
-        iconLabel.textContent = `Ícono:`;
+        iconLabel.textContent = `Tu Ícono:`;
         const iconSelect = document.createElement('select');
         iconSelect.id = `player-icon-${i}`;
         state.AVAILABLE_ICONS.forEach(icon => {
@@ -199,11 +343,11 @@ export function generatePlayerSetupFields(count) {
             option.textContent = icon;
             iconSelect.appendChild(option);
         });
-        iconSelect.value = state.AVAILABLE_ICONS[i % state.AVAILABLE_ICONS.length];
+        iconSelect.value = state.AVAILABLE_ICONS[Math.floor(Math.random() * state.AVAILABLE_ICONS.length)]; // Random default for network player
 
         const colorLabel = document.createElement('label');
         colorLabel.htmlFor = `player-color-${i}`;
-        colorLabel.textContent = `Color:`;
+        colorLabel.textContent = `Tu Color:`;
         const colorInput = document.createElement('input');
         colorInput.type = 'color';
         colorInput.id = `player-color-${i}`;
@@ -215,9 +359,18 @@ export function generatePlayerSetupFields(count) {
         card.append(nameLabel, nameInput, iconLabel, iconSelect, colorLabel, colorInput);
         playerCustomizationArea.appendChild(card);
     }
+    if (forNetwork && count > 1) {
+        const infoText = document.createElement('p');
+        infoText.className = 'text-sm text-gray-600 mt-2';
+        infoText.textContent = `Personalizarás tus datos. Los demás jugadores (${count-1}) se unirán en la sala.`;
+        playerCustomizationArea.appendChild(infoText);
+    }
 }
 
+// ---------- SVG BOARD DRAWING FUNCTIONS ----------
 export function drawBoardSVG() {
+    // ... (keep existing drawBoardSVG content, ensure it uses state.numRows, state.numCols etc.)
+    // This function seems okay as is, assuming state.numRows/cols are set correctly before calling.
     if (!gameBoardSVG) return;
     gameBoardSVG.innerHTML = '';
     const svgWidth = (state.numCols - 1) * state.CELL_SIZE + 2 * state.SVG_PADDING;
@@ -268,6 +421,8 @@ export function drawBoardSVG() {
 }
 
 export function drawVisualLineOnBoard(type, r_val, c_val, playerIdx) {
+    // ... (keep existing drawVisualLineOnBoard content)
+    // This function seems okay as is, assuming state.playersData is correctly populated for the game.
     const drawnLinesGroup = document.getElementById('drawn-lines-group');
     if (!drawnLinesGroup) return null;
 
@@ -296,6 +451,8 @@ export function drawVisualLineOnBoard(type, r_val, c_val, playerIdx) {
 }
 
 export function fillBoxOnBoard(br, bc, playerIdx) {
+    // ... (keep existing fillBoxOnBoard content)
+    // This function seems okay as is.
     const filledBoxesGroup = document.getElementById('filled-boxes-group');
     if(!filledBoxesGroup) return null;
 
@@ -327,7 +484,7 @@ export function fillBoxOnBoard(br, bc, playerIdx) {
     boxText.setAttribute('class', 'box-text box-text-anim');
     const dynamicFontSize = Math.max(10, Math.min(18, state.CELL_SIZE / 3.2));
     boxText.style.fontSize = `${dynamicFontSize}px`;
-    const namePart = playerData.name.length > 0 ? playerData.name.substring(0, 1).toUpperCase() + "." : "";
+    const namePart = playerData.name && playerData.name.length > 0 ? playerData.name.substring(0, 1).toUpperCase() + "." : "";
     boxText.textContent = `${namePart}${playerData.icon}`;
     boxText.style.transformOrigin = `${textX}px ${textY}px`;
     boxText.style.transform = 'scale(0.2)'; boxText.style.opacity = '0';
@@ -343,6 +500,7 @@ export function fillBoxOnBoard(br, bc, playerIdx) {
 }
 
 export function clearBoardForNewGame() {
+    // ... (keep existing clearBoardForNewGame content)
     const linesGroup = document.getElementById('drawn-lines-group');
     const boxesGroup = document.getElementById('filled-boxes-group');
     if (linesGroup) linesGroup.innerHTML = '';
@@ -355,6 +513,7 @@ export function clearBoardForNewGame() {
 }
 
 export function removeVisualLineFromBoard(type, r_val, c_val) {
+    // ... (keep existing content)
     const lineElement = document.getElementById(`line-${type}-${r_val}-${c_val}`);
     if (lineElement && lineElement.parentNode) {
         lineElement.style.opacity = '0';
@@ -367,6 +526,7 @@ export function removeVisualLineFromBoard(type, r_val, c_val) {
 }
 
 export function removeFilledBoxFromBoard(br, bc) {
+    // ... (keep existing content)
     const boxElement = document.getElementById(`box-${br}-${bc}`);
     const textElement = document.getElementById(`boxtext-${br}-${bc}`);
     if (boxElement && boxElement.parentNode) {
@@ -380,132 +540,121 @@ export function removeFilledBoxFromBoard(br, bc) {
     }
 }
 
-// ---------- NETWORK UI FUNCTIONS ----------
-export function displayQRCode(gameLink, displayId) {
-    console.log("[UI] displayQRCode called with gameLink:", gameLink, "displayId:", displayId);
-    const networkInfoDiv = document.getElementById('network-info-area');
 
-    if (!qrCodeContainer) {
-        console.error("[UI] qrCodeContainer element (for canvas) not found!");
-        showModalMessage(`ID del Juego: ${displayId}. Compartilo para que alguien se una. (Error: Contenedor QR no encontrado)`);
+// ---------- NETWORK UI FUNCTIONS (QR, Info Area) ----------
+export function displayQRCode(gameLink, displayId, message = "Compartí este enlace o ID para que se unan a tu sala:") {
+    if (!networkInfoArea || !qrCodeContainer || !copyGameIdButton || !networkInfoTitle || !networkInfoText) {
+        console.error("[UI] QR Code or Network Info Area elements not found!");
+        showModalMessage(`ID de Sala: ${displayId}. Enlace: ${gameLink}. (Error UI QR)`);
         return;
     }
     if (!window.QRious) {
         console.warn('[UI] QRious library not loaded.');
-        showModalMessage(`ID del Juego: ${displayId}. Compartilo para que alguien se una. (Error: Librería QR no cargada)`);
+        showModalMessage(`ID de Sala: ${displayId}. Enlace: ${gameLink}. (Error QR Lib)`);
+        networkInfoText.textContent = `ID: ${displayId}. Link: ${gameLink}`;
         return;
     }
 
-    // Make the parent 'network-info-area' visible
-    if (networkInfoDiv) {
-        console.log("[UI] Making networkInfoDiv visible.");
-        networkInfoDiv.classList.remove('hidden');
-    } else {
-        console.warn("[UI] 'network-info-area' div (parent for QR) not found. QR code might not be styled/positioned correctly.");
-    }
+    networkInfoArea.classList.remove('hidden');
+    networkInfoTitle.textContent = "¡Sala Creada!";
+    networkInfoText.textContent = `${message} ID: ${displayId}`;
+
 
     qrCodeContainer.innerHTML = ''; // Clear previous QR
     const canvas = document.createElement('canvas');
     try {
         new QRious({
             element: canvas,
-            value: gameLink, // This should be the full URL (e.g., https://cajitas.martinez.fyi/?room=abc123)
-            size: 160,
-            padding: 8,
-            level: 'H',
-            foreground: '#FF1493',
-            background: '#FFF8FB'
+            value: gameLink,
+            size: 160, padding: 8, level: 'H',
+            foreground: '#A020F0', background: '#FFF8FB' // Purple theme
         });
         qrCodeContainer.appendChild(canvas);
-        console.log("[UI] QR code generated and appended to qrCodeContainer.");
     } catch(e) {
-        console.error("[UI] Error generating QR code with QRious:", e);
-        if(qrCodeContainer) qrCodeContainer.textContent = "Error al generar QR.";
+        console.error("[UI] Error generating QR code:", e);
+        qrCodeContainer.textContent = "Error QR.";
+        networkInfoText.textContent += " (Error al generar QR)";
         showModalMessage(`Error al generar QR. ID: ${displayId}. Link: ${gameLink}`);
         return;
     }
 
-    // Update copy button with the full game link
-    if(copyGameIdButton) {
-        copyGameIdButton.textContent = "Copiar Enlace del Juego";
-        copyGameIdButton.onclick = () => {
-            navigator.clipboard.writeText(gameLink) // Copy the full URL, not just the display ID
-                .then(() => updateMessageArea('¡Enlace del juego copiado!'))
-                .catch(err => {
-                    console.error('[UI] Error copying game link to clipboard:', err);
-                    updateMessageArea('Error al copiar enlace.', true);
-                });
-        };
-    }
+    copyGameIdButton.textContent = "Copiar Enlace de Sala";
+    copyGameIdButton.onclick = () => {
+        navigator.clipboard.writeText(gameLink)
+            .then(() => updateMessageArea('¡Enlace de la sala copiado!', false, 2000))
+            .catch(err => {
+                console.error('[UI] Error copying game link:', err);
+                updateMessageArea('Error al copiar enlace.', true, 2000);
+            });
+    };
 }
 
 export function hideQRCode() {
-    console.log("[UI] hideQRCode called.");
-    const networkInfoDiv = document.getElementById('network-info-area');
-    if (networkInfoDiv) {
-        networkInfoDiv.classList.add('hidden');
-        console.log("[UI] networkInfoDiv hidden.");
-    }
-    if (qrCodeContainer) qrCodeContainer.innerHTML = ''; // Clear the QR canvas
+    if (networkInfoArea) networkInfoArea.classList.add('hidden');
+    if (qrCodeContainer) qrCodeContainer.innerHTML = '';
 }
 
 export function updateGameModeUI() {
-    console.log("[UI] updateGameModeUI called. PvP Active:", state.pvpRemoteActive, "Paired:", state.gamePaired, "Am P1:", state.iAmPlayer1InRemote, "Host ID:", state.currentHostPeerId);
-    const networkInfoDiv = document.getElementById('network-info-area');
+    // This function now primarily controls visibility of setup vs lobby vs game
+    // and enables/disables form inputs.
+    // Actual display of QR or matchmaking messages might be handled more specifically.
 
-    const isActuallyHostingOrJoining = state.pvpRemoteActive;
+    const inSetup = setupSection && !setupSection.classList.contains('hidden');
+    const inLobby = lobbyArea && !lobbyArea.classList.contains('hidden');
+    // const inGame = gameArea && !gameArea.classList.contains('hidden'); // Not needed directly for this logic
 
-    if (hostGameButton) hostGameButton.style.display = isActuallyHostingOrJoining ? 'none' : 'inline-block';
-    if (playRandomButton) playRandomButton.style.display = isActuallyHostingOrJoining ? 'none' : 'inline-block';
+    // Disable setup inputs if in lobby or if a network game is active (even if momentarily on game screen before full init)
+    const disableSetup = inLobby || state.pvpRemoteActive;
 
+    if(rowsInput) rowsInput.disabled = disableSetup;
+    if(colsInput) colsInput.disabled = disableSetup;
+    if(numPlayersInput) numPlayersInput.disabled = disableSetup; // Local player count
+    if(networkMaxPlayersSelect) networkMaxPlayersSelect.disabled = disableSetup; // Network max player count
+
+    playerCustomizationArea?.querySelectorAll('input, select').forEach(el => {
+        if(el) el.disabled = disableSetup;
+    });
+    
+    // Start game button for local games
+    if (startGameBtn) startGameBtn.style.display = state.pvpRemoteActive ? 'none' : 'block';
+
+    // Network hosting/joining buttons
+    if (hostGameButton) hostGameButton.style.display = state.pvpRemoteActive ? 'none' : 'inline-block';
+    if (playRandomButton) playRandomButton.style.display = state.pvpRemoteActive ? 'none' : 'inline-block';
+
+
+    // Cancel matchmaking button visibility
     if (cancelMatchmakingButton) {
-        const isActivelyMatchmaking = state.pvpRemoteActive &&
-                                   !state.gamePaired &&
-                                   !state.currentHostPeerId && // Not in a direct hosting/joining state (ID would be set)
-                                   (playRandomButton?.style.display === 'none'); // If play random was clicked
-        cancelMatchmakingButton.style.display = isActivelyMatchmaking ? 'inline-block' : 'none';
-    }
+        // Show if pvpRemoteActive (meaning a network process started),
+        // AND not yet in a lobby (roomState not 'lobby' or 'in_game' etc.),
+        // AND not yet successfully paired/connected (e.g. room.gamePaired is false or similar)
+        // This needs to be refined based on actual matchmaking flow.
+        // For now, a simple check: if "Play Random" was clicked and we are not in a lobby yet.
+        const isMatchmaking = state.pvpRemoteActive &&
+                              state.networkRoomData.roomState === 'seeking_match' || // A new state for matchmaking
+                             (state.networkRoomData.roomState === 'idle' && playRandomButton.style.display === 'none' && !state.networkRoomData.roomId);
 
-    const disableSetupInputs = state.pvpRemoteActive;
-    if(rowsInput) rowsInput.disabled = disableSetupInputs;
-    if(colsInput) colsInput.disabled = disableSetupInputs;
-    if(numPlayersInput) {
-        numPlayersInput.disabled = disableSetupInputs;
-        if(disableSetupInputs && parseInt(numPlayersInput.value) !== 2) {
-             numPlayersInput.value = "2";
-             generatePlayerSetupFields(2);
+        cancelMatchmakingButton.style.display = isMatchmaking ? 'inline-block' : 'none';
+        if (isMatchmaking && networkInfoArea && networkInfoText) {
+            networkInfoArea.classList.remove('hidden');
+            networkInfoTitle.textContent = "Buscando Partida...";
+            networkInfoText.textContent = "Intentando encontrar oponentes al azar...";
+            qrCodeContainer.innerHTML = ''; // No QR for random matchmaking search
+        } else if (!isMatchmaking && networkInfoArea && networkInfoTitle.textContent === "Buscando Partida...") {
+            // If matchmaking was cancelled or finished, hide this specific message.
+            // Other functions (like displayQRCode or updateLobbyUI) will manage networkInfoArea if needed.
+            if (!state.networkRoomData.roomId) hideQRCode(); // Only hide if not in a room yet
         }
     }
-    playerCustomizationArea?.querySelectorAll('input, select').forEach(el => { if(el) el.disabled = disableSetupInputs; });
 
-    const hostIsActivelyWaitingWithId = state.pvpRemoteActive && !state.gamePaired && state.iAmPlayer1InRemote && state.currentHostPeerId;
-
-    if (hostIsActivelyWaitingWithId) {
-        if (networkInfoDiv && networkInfoDiv.classList.contains('hidden')) {
-            console.warn("[UI] Host is waiting with ID, but networkInfoDiv is hidden. displayQRCode should manage this.");
-        }
-        updateMessageArea(`Compartí el enlace o ID: ${state.CAJITAS_PEER_ID_PREFIX}${state.currentHostPeerId}`);
-    } else if (networkInfoDiv && !networkInfoDiv.classList.contains('hidden')) {
-        hideQRCode();
-    }
-
-    // Update general messages based on other states for clarity
-    if (state.pvpRemoteActive && !state.gamePaired) {
-        if (!state.iAmPlayer1InRemote && state.currentHostPeerId) {
-            updateMessageArea(`Intentando conectar a ${state.currentHostPeerId}...`);
-        } else if (state.iAmPlayer1InRemote && !state.currentHostPeerId && !cancelMatchmakingButton?.style.display !== 'none') { // Host, before PeerID assigned AND not matchmaking
-            updateMessageArea("Estableciendo conexión como Host...");
-        }
-        // Matchmaking searching message is handled by matchmaking callbacks
-    } else if (state.pvpRemoteActive && state.gamePaired) {
-        // Game is paired. Player turn display will show current status.
-    } else if (!state.gameActive) {
-         updateMessageArea("Configurá la partida y dale a Empezar!");
-    }
+    if (undoBtn) undoBtn.disabled = state.pvpRemoteActive || !state.lastMoveForUndo;
 }
 
+
+// Initial call to set up player fields for local game as default
 document.addEventListener('DOMContentLoaded', () => {
-    if(numPlayersInput && playerCustomizationArea) {
-        generatePlayerSetupFields(parseInt(numPlayersInput.value));
+    if(numPlayersInput && playerCustomizationArea && !state.pvpRemoteActive) {
+        generatePlayerSetupFields(parseInt(numPlayersInput.value || "2"));
     }
+    updateGameModeUI(); // Initial UI state
 });

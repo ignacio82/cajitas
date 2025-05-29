@@ -12,14 +12,12 @@
     
     <title>Cajitas de Danielle - ¡A Jugar!</title>
 
-    <!-- External CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=4">
+    <link rel="stylesheet" href="style.css?v=5"> {/* Incremented version for potential CSS changes */}
 
-    <!-- External JavaScript Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
@@ -43,7 +41,7 @@
             </div>
 
             <div>
-                <label for="num-players-input" class="block text-sm font-medium text-gray-700">Cantidad de Jugadores/as (2-4 Local, 2 Remoto):</label>
+                <label for="num-players-input" class="block text-sm font-medium text-gray-700">Jugadores Locales (2-4):</label>
                 <input type="number" id="num-players-input" name="num-players-input" value="2" min="2" max="4" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm">
             </div>
 
@@ -55,28 +53,71 @@
             </button>
 
             <div class="mt-6 pt-4 border-t border-pink-200">
-                <h2 class="text-xl font-semibold text-center text-purple-700 mb-4">Jugar en Red 🌐</h2>
+                <h2 class="text-xl font-semibold text-center text-purple-700 mb-2">Jugar en Red 🌐</h2>
+                
+                <div class="mb-4">
+                    <label for="network-max-players" class="block text-sm font-medium text-gray-700">Máx. Jugadores en Red (2-4):</label>
+                    <select id="network-max-players" name="network-max-players" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm">
+                        <option value="2">2 Jugadores</option>
+                        <option value="3">3 Jugadores</option>
+                        <option value="4" selected>4 Jugadores</option>
+                    </select>
+                </div>
+
                 <div class="network-buttons-container">
-                    <button id="host-cajitas-btn" class="network-btn">Hostear Juego de Cajitas 🏰</button>
-                    <button id="play-random-cajitas-btn" class="network-btn">Jugar con Alguien al Azar 🎲</button>
+                    <button id="host-cajitas-btn" class="network-btn">Hostear Sala de Juego 🏰</button>
+                    <button id="play-random-cajitas-btn" class="network-btn">Unirse a Sala al Azar 🎲</button>
                 </div>
             </div>
 
             <div id="network-info-area" class="network-info-area hidden">
-                <h3>Juego Remoto Iniciado</h3>
+                <h3 id="network-info-title">Juego Remoto Iniciado</h3>
                 <div id="qr-code-container" class="qr-code-container">
                 </div>
+                <div id="network-info-text" class="text-sm text-gray-600 my-2"></div>
                 <div class="network-action-buttons">
-                    <button id="copy-game-id-btn" class="btn-copy">Copiar Enlace del Juego</button>
+                    <button id="copy-game-id-btn" class="btn-copy">Copiar Enlace de Sala</button>
                     <button id="cancel-matchmaking-btn" class="btn-cancel hidden">Cancelar Búsqueda</button>
                 </div>
             </div>
         </div>
 
+        {/* NEW LOBBY AREA */}
+        <div id="lobby-area" class="hidden space-y-4 p-4 bg-purple-50 rounded-lg shadow-md">
+            <h2 id="lobby-title" class="text-2xl font-bold text-center text-purple-700">Sala de Espera</h2>
+            <div id="lobby-room-id-display" class="text-center text-sm text-gray-600">ID de Sala: <span class="font-semibold text-purple-600">Cargando...</span></div>
+            
+            <div id="lobby-game-settings-display" class="text-sm text-center text-gray-700">
+                <p>Tablero: <span id="lobby-board-size">XxY</span> | Jugadores: <span id="lobby-player-count">N/M</span></p>
+            </div>
+
+            <div id="lobby-player-list" class="space-y-2">
+                {/* Player cards will be dynamically inserted here by ui.js */}
+                {/* Example Player Card Structure (for reference in ui.js):
+                <div class="player-lobby-card flex items-center justify-between p-3 bg-white rounded-lg shadow" style="border-left: 5px solid #COLOR;">
+                    <div class="flex items-center">
+                        <span class="text-2xl mr-2">ICON</span>
+                        <span class="font-semibold text-gray-800">PLAYER_NAME</span>
+                    </div>
+                    <span class="text-sm font-medium rounded-full px-2 py-1 PLAYER_READY_CLASS">READY_STATUS</span>
+                </div>
+                */}
+            </div>
+            
+            <div id="lobby-message-area" class="text-center text-pink-600 font-medium min-h-[20px]"></div>
+
+            <div class="flex flex-col sm:flex-row gap-3 mt-4">
+                <button id="lobby-toggle-ready-btn" class="btn-secondary flex-1">Marcar como Listo 👍</button>
+                <button id="lobby-start-game-leader-btn" class="btn-primary hidden flex-1">¡Iniciar Juego Ahora! 🚀</button>
+            </div>
+            <button id="lobby-leave-room-btn" class="btn-accent w-full mt-2">Salir de la Sala🚪</button>
+        </div>
+
+
         <div id="game-area" class="hidden">
             <div id="info-panel" class="mb-4 p-3 bg-pink-50 rounded-lg shadow">
                 <div id="player-turn" class="text-xl font-bold text-center mb-2"></div>
-                <div id="scores" class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-center">
+                <div id="scores" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-center"> {/* Adjusted grid for up to 4 players */}
                 </div>
             </div>
 
@@ -93,6 +134,7 @@
                 <button id="reset-game-btn" class="btn-accent">
                     Juego Nuevo 💖
                 </button>
+                {/* In-game "Leave Network Game" button might be useful later */}
             </div>
         </div>
     </div>
@@ -105,8 +147,7 @@
         </div>
     </div>
 
-    <!-- Application JavaScript -->
-    <script src="peerjs-multiplayer.js?v=3"></script>
-    <script type="module" src="main.js?v=3"></script>
+    <script src="peerjs-multiplayer.js?v=4"></script> {/* Incremented version */}
+    <script type="module" src="main.js?v=4"></script> {/* Incremented version */}
 </body>
 </html>
