@@ -38,7 +38,7 @@ function cleanupMatchmakingState() {
         matchmakingCheckInterval = null;
     }
     isSearchingOrHostingViaMatchmaking = false;
-    // localPlayerHostedRoomId_Supabase is cleared by leaveQueue if it was this client's room
+    // localPlayerHostedRoomId_Supabase is typically cleared by leaveQueue when its associated room is unlisted
 }
 
 export async function joinQueue(localRawPeerId, myPlayerData, preferences, callbacks) {
@@ -60,12 +60,12 @@ export async function joinQueue(localRawPeerId, myPlayerData, preferences, callb
 
     try {
         console.log('[Matchmaking] Phase 1: Looking for existing rooms...');
-        // Ensure preferences.maxPlayers is a number for the filter
+        
         const preferredMaxPlayers = Number(preferences.maxPlayers);
         if (isNaN(preferredMaxPlayers)) {
             console.error('[Matchmaking] preferences.maxPlayers is not a valid number:', preferences.maxPlayers);
             cleanupMatchmakingState();
-            callbacks.onError?.('Preferencia de maxPlayers inválida.');
+            callbacks.onError?.('Preferencia de maxPlayers inválida para matchmaking.');
             return;
         }
 
@@ -74,11 +74,11 @@ export async function joinQueue(localRawPeerId, myPlayerData, preferences, callb
             .select('*')
             .eq('status', 'hosting_waiting_for_players')
             .eq('game_type', 'cajitas') 
-            // Filter for rooms where current_players < value_of_preferences.maxPlayers
-            // And also that the room's max_players setting is compatible (e.g., equal to preferredMaxPlayers)
-            .lt('current_players', preferredMaxPlayers) // Room is not full for this preference
-            .eq('max_players', preferredMaxPlayers)     // Room is set up for the same number of max players
-            // TODO: Add more sophisticated matching for game_settings (rows, cols) if stored and preferred
+            .lt('current_players', preferredMaxPlayers) // Room has space for at least one more player up to preferred max
+            .eq('max_players', preferredMaxPlayers)     // Room's configured max_players matches preference
+            // Potentially add filter for game_settings (rows, cols) if desired for stricter matching:
+            // .eq('game_settings->>rows', preferences.gameSettings.rows)
+            // .eq('game_settings->>cols', preferences.gameSettings.cols)
             .order('created_at', { ascending: true }); 
 
         if (fetchError) {
@@ -89,9 +89,7 @@ export async function joinQueue(localRawPeerId, myPlayerData, preferences, callb
         }
 
         if (openRooms && openRooms.length > 0) {
-            // TODO: Implement more sophisticated room selection logic if multiple suitable rooms are found.
-            // For now, taking the first one that matches the max_players preference and has space.
-            const suitableRoom = openRooms[0]; 
+            const suitableRoom = openRooms[0]; // Simplistic: take the first matching room
             console.log('[Matchmaking] Found suitable room to join:', suitableRoom);
             
             cleanupMatchmakingState(); 
@@ -121,8 +119,8 @@ export async function joinQueue(localRawPeerId, myPlayerData, preferences, callb
             room_id: localSupabasePeerId, 
             status: 'hosting_waiting_for_players',
             game_type: 'cajitas',
-            preferred_players: preferences.preferredPlayers, // This might be the same as max_players for now
-            max_players: preferences.maxPlayers,
+            preferred_players: preferences.preferredPlayers,
+            max_players: preferences.maxPlayers, // Use maxPlayers from preferences
             current_players: 1, 
             game_settings: preferences.gameSettings, 
         };
@@ -140,7 +138,7 @@ export async function joinQueue(localRawPeerId, myPlayerData, preferences, callb
         }
 
         console.log('[Matchmaking] Successfully listed new room for hosting:', newRoomEntry);
-        isSearchingOrHostingViaMatchmaking = false; 
+        isSearchingOrHostingViaMatchmaking = false; // Successfully became a host via matchmaking
 
         callbacks.onMatchFoundAndHostingRoom?.(
             localRawPeerId, 
@@ -169,8 +167,6 @@ export async function leaveQueue(localRawPeerIdToLeave = null) {
     if (peerIdToRemove && supabase) {
         console.log(`[Matchmaking] Attempting to remove Supabase entry for room/peer: ${peerIdToRemove}`);
         try {
-            // Remove any entry where this peer is the host (room_id = peerIdToRemove)
-            // OR where this peer is listed as the primary peer_id (if it was just seeking)
             const { error } = await supabase
                 .from(MATCHMAKING_TABLE)
                 .delete()
@@ -188,36 +184,34 @@ export async function leaveQueue(localRawPeerIdToLeave = null) {
     if (peerIdToRemove === localPlayerHostedRoomId_Supabase) {
         localPlayerHostedRoomId_Supabase = null; 
     }
-    cleanupMatchmakingState(); // Ensure flags are reset after DB operations
+    cleanupMatchmakingState();
 }
 
 export async function updateHostedRoomStatus(hostRawPeerId, gameSettings, maxPlayers, currentPlayers, newStatus = null) {
     if (!supabase || !hostRawPeerId) return;
 
     const hostSupabasePeerId = `${state.CAJITAS_PEER_ID_PREFIX}${hostRawPeerId}`;
-    console.log(`[Matchmaking] Host ${hostSupabasePeerId} updating room status. Current Players: ${currentPlayers}/${maxPlayers}. New Status: ${newStatus}`);
+    // console.log(`[Matchmaking] Host ${hostSupabasePeerId} updating room status. Current Players: ${currentPlayers}/${maxPlayers}. New Status: ${newStatus}`); // Can be noisy
 
     let statusToSet = newStatus;
     if (!statusToSet) { 
         if (currentPlayers >= maxPlayers) {
             statusToSet = 'full'; 
-        } else if (currentPlayers < state.MIN_PLAYERS_NETWORK && currentPlayers > 0) { // If players drop below min but room not empty
-            statusToSet = 'hosting_waiting_for_players';
-        } else if (currentPlayers <= 0) { // No one left, should probably be unlisted by leaveQueue
-            console.warn(`[Matchmaking] updateHostedRoomStatus called for host ${hostSupabasePeerId} with 0 players. Room should ideally be unlisted via leaveQueue.`);
-            // For safety, mark as waiting if not explicitly something else.
+        } else if (currentPlayers <= 0 && state.networkRoomData.roomState !== 'in_game') { 
+            // If leader is the only one left and game hasn't started, or if room becomes empty.
+            // This might lead to unlisting the room if no one is in it.
+            // For now, if currentPlayers is 0, it might mean the room should be removed by leaveQueue.
+            // If leader is still there (currentPlayers=1), it's 'hosting_waiting_for_players'.
             statusToSet = 'hosting_waiting_for_players'; 
         }
-        else { // Default to waiting if status not explicitly set and not full
+        else { 
             statusToSet = 'hosting_waiting_for_players';
         }
     }
     
-    // If room becomes full or game starts, its status is updated.
-    // If status is 'full' or 'in_game', new players won't find it via matchmaking query for 'hosting_waiting_for_players'.
     const { error } = await supabase
         .from(MATCHMAKING_TABLE)
-        .update({ current_players: currentPlayers, status: statusToSet, game_settings: gameSettings, max_players: maxPlayers }) // Also update max_players if it can change
+        .update({ current_players: currentPlayers, status: statusToSet, game_settings: gameSettings, max_players: maxPlayers }) 
         .eq('room_id', hostSupabasePeerId); 
 
     if (error) {
