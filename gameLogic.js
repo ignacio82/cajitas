@@ -44,7 +44,8 @@ export function initializeGame(isRemoteGame = false) {
         ui.setBoardClickable(state.gameActive);
     }
 
-    if (ui.undoBtn) ui.undoBtn.disabled = isRemoteGame || !state.lastMoveForUndo;
+    const undoBtn = document.getElementById('undo-btn');
+    if (undoBtn) undoBtn.disabled = isRemoteGame || !state.lastMoveForUndo;
 
     console.log(`[GameLogic] Game initialized. Starting Player: ${state.playersData[state.currentPlayerIndex]?.name}. Is My Turn (if remote): ${state.pvpRemoteActive ? (state.networkRoomData.myPlayerIdInRoom === state.currentPlayerIndex) : 'N/A'}`);
 }
@@ -193,7 +194,8 @@ export function processMove(type, r, c, playerIndex, isOptimisticUpdate = false,
             boxesCompletedBeforeThisMove: previousBoxStates,
             scoreBeforeThisMove: state.playersData[playerIndex]?.score ?? 0
         });
-        if (ui.undoBtn) ui.undoBtn.disabled = false;
+        const undoBtn = document.getElementById('undo-btn');
+        if (undoBtn) undoBtn.disabled = false;
     }
 
     // --- 5. Check for Completed Boxes & Update Scores/UI ---
@@ -215,7 +217,8 @@ export function processMove(type, r, c, playerIndex, isOptimisticUpdate = false,
         // In local games, if a box is made, undo is disabled for that specific scoring move chain.
         if (!state.pvpRemoteActive && !isOptimisticUpdate && !isLeaderProcessing) {
             state.setLastMoveForUndo(null);
-            if (ui.undoBtn) ui.undoBtn.disabled = true;
+            const undoBtn = document.getElementById('undo-btn');
+            if (undoBtn) undoBtn.disabled = true;
         }
     }
 
@@ -225,7 +228,8 @@ export function processMove(type, r, c, playerIndex, isOptimisticUpdate = false,
             announceWinner();
         }
         state.setGameActive(false);
-        if (ui.undoBtn && !state.pvpRemoteActive) ui.undoBtn.disabled = true;
+        const undoBtn = document.getElementById('undo-btn');
+        if (undoBtn && !state.pvpRemoteActive) undoBtn.disabled = true;
         if (!isOptimisticUpdate) ui.setBoardClickable(false);
         // Leader will broadcast game over state.
         return boxesCompletedCount; // Return boxes made, even if game ends
@@ -321,7 +325,8 @@ function endTurn(playerWhoseTurnEnded) { // Called by leader or local game
     
     if (!state.pvpRemoteActive) { // Local game specific UI updates
         state.setLastMoveForUndo(null);
-        if (ui.undoBtn) ui.undoBtn.disabled = true;
+        const undoBtn = document.getElementById('undo-btn');
+        if (undoBtn) undoBtn.disabled = true;
         ui.updateMessageArea(''); // Clear "scored box" message
     }
     // ui.updatePlayerTurnDisplay(); // Caller (processMove or applyRemoteMove) will handle this
@@ -329,7 +334,8 @@ function endTurn(playerWhoseTurnEnded) { // Called by leader or local game
 
 export function handleUndo() {
     if (state.pvpRemoteActive || !state.gameActive || !state.lastMoveForUndo) {
-        if (ui.undoBtn) ui.undoBtn.disabled = true;
+        const undoBtn = document.getElementById('undo-btn');
+        if (undoBtn) undoBtn.disabled = true;
         return;
     }
     sound.playSound(sound.undoSound, "E3", "16n");
@@ -365,7 +371,8 @@ export function handleUndo() {
     ui.updateScoresDisplay();
     ui.updateMessageArea(`${state.playersData[playerIndex]?.name}, ¡hacé tu jugada de nuevo!`);
     state.setLastMoveForUndo(null);
-    if (ui.undoBtn) ui.undoBtn.disabled = true;
+    const undoBtn = document.getElementById('undo-btn');
+    if (undoBtn) undoBtn.disabled = true;
 
     state.setCurrentPlayerIndex(playerIndex); // Return turn to the player who made the original move
     ui.updatePlayerTurnDisplay();
@@ -410,8 +417,9 @@ function announceWinner() { // Called in local games or by leader
     }
     ui.showModalMessage(`¡Juego Terminado! ${winnerMessage}`);
     ui.updateMessageArea(''); // Clear any turn messages
-    if (ui.mainTitle && !state.pvpRemoteActive) ui.mainTitle.textContent = "¿Jugar de Nuevo?"; // For local
-    else if (ui.mainTitle && state.pvpRemoteActive) ui.mainTitle.textContent = "Partida Terminada";
+    const mainTitle = document.getElementById('main-title');
+    if (mainTitle && !state.pvpRemoteActive) mainTitle.textContent = "¿Jugar de Nuevo?"; // For local
+    else if (mainTitle && state.pvpRemoteActive) mainTitle.textContent = "Partida Terminada";
 }
 
 /**
@@ -438,8 +446,11 @@ export function applyRemoteMove(moveData, nextPlayerIndexFromLeader, updatedScor
     ui.drawVisualLineOnBoard(type, r, c, moverPlayerIndex);
     sound.playSound(sound.lineSound, "C4", "32n");
     const slotId = `slot-${type}-${r}-${c}`;
-    document.getElementById(slotId)?.removeEventListener('click', handleLineClickWrapper);
-    document.getElementById(slotId)?.style.fill = 'transparent';
+    const slotElement = document.getElementById(slotId);
+    if (slotElement) {
+        slotElement.removeEventListener('click', handleLineClickWrapper);
+        slotElement.style.fill = 'transparent';
+    }
 
     // --- 2. Check for Completed Boxes & Update UI (Fill Box) ---
     // This needs to happen to fill boxes based on the new line. Scores come from leader.
@@ -596,9 +607,9 @@ export function endGameAbruptly() {
         state.setGameActive(false);
         ui.updateMessageArea("El juego terminó inesperadamente.", true);
         ui.setBoardClickable(false);
-        if (ui.undoBtn && !state.pvpRemoteActive) ui.undoBtn.disabled = true;
+        const undoBtn = document.getElementById('undo-btn');
+        if (undoBtn && !state.pvpRemoteActive) undoBtn.disabled = true;
         state.setLastMoveForUndo(null);
         // Consider showing a modal or specific UI state
     }
 }
-// Removed extra closing brace from here
