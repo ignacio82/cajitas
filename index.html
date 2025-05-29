@@ -17,7 +17,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=3">
+    <link rel="stylesheet" href="style.css?v=4">
 
     <!-- External JavaScript Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
@@ -55,19 +55,21 @@
             </button>
 
             <div class="mt-6 pt-4 border-t border-pink-200">
-                <h2 class="text-xl font-semibold text-center text-purple-700 mb-3">Jugar en Red 🌐</h2>
-                <div class="flex flex-wrap justify-center gap-3">
+                <h2 class="text-xl font-semibold text-center text-purple-700 mb-4">Jugar en Red 🌐</h2>
+                <div class="network-buttons-container">
                     <button id="host-cajitas-btn" class="network-btn">Hostear Juego de Cajitas 🏰</button>
                     <button id="play-random-cajitas-btn" class="network-btn">Jugar con Alguien al Azar 🎲</button>
                 </div>
             </div>
 
             <div id="network-info-area" class="network-info-area hidden">
-                <h3 class="text-lg font-semibold text-pink-700">Juego Remoto Iniciado</h3>
+                <h3>Juego Remoto Iniciado</h3>
                 <div id="qr-code-container" class="qr-code-container">
                 </div>
-                <button id="copy-game-id-btn" class="btn-copy">Copiar Enlace del Juego</button>
-                <button id="cancel-matchmaking-btn" class="btn-cancel hidden">Cancelar Búsqueda</button>
+                <div class="network-action-buttons">
+                    <button id="copy-game-id-btn" class="btn-copy">Copiar Enlace del Juego</button>
+                    <button id="cancel-matchmaking-btn" class="btn-cancel hidden">Cancelar Búsqueda</button>
+                </div>
             </div>
         </div>
 
@@ -84,7 +86,7 @@
 
             <div id="message-area" class="message-area"></div>
 
-            <div class="flex space-x-2 mt-6">
+            <div class="game-controls">
                 <button id="undo-btn" class="btn-secondary">
                     Deshacer ↩️
                 </button>
