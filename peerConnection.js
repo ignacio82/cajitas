@@ -663,11 +663,10 @@ export function leaveRoom() {
     }
     leaderConnection = null;
     
-    if (window.peerJsMultiplayer && typeof window.peerJsMultiplayer.close === 'function') {
-         // We don't destroy the peer object itself, just close connections,
-         // so it can be reused for hosting/joining another game without needing a new PeerID.
-         // If full PeerJS shutdown is needed: window.peerJsMultiplayer.close();
-    }
+    // Note: This function intentionally does NOT call full peer.destroy() by default.
+    // It's for leaving a specific room's P2P connections.
+    // The full PeerJS session (local Peer object) might be kept alive for joining/hosting another game.
+    // If a full shutdown (peer.destroy()) is needed, call closePeerSession().
 
     state.resetNetworkRoomData();
     state.setPvpRemoteActive(false);
@@ -794,9 +793,29 @@ export function sendGameMoveToLeader(type, r, c, boxesCompletedCount) {
     });
 }
 
+/**
+ * Fully closes and destroys the local PeerJS session.
+ * This should be called when PeerJS is no longer needed at all (e.g., user exits multiplayer section).
+ */
+export function closePeerSession() {
+    if (window.peerJsMultiplayer && typeof window.peerJsMultiplayer.close === 'function') {
+        console.log("[PeerConn] Fully closing PeerJS session (destroying peer).");
+        window.peerJsMultiplayer.close(); // This calls the function in peerjs-multiplayer.js that does peer.destroy()
+    } else {
+        console.warn("[PeerConn] Attempted to close peer session, but peerJsMultiplayer.close is not available.");
+    }
+    // Also ensure local P2P connection variables are cleared
+    leaderConnection = null;
+    connections.clear();
+    // state.resetNetworkRoomData(); // Should be called by the caller in main.js if appropriate
+    // state.setMyPeerId(null); // The peerJsMultiplayer.close() should nullify its internal localPeerId
+}
+
+
 // Close all connections when the window is about to unload
 window.addEventListener('beforeunload', () => {
     if (state.pvpRemoteActive) {
-        leaveRoom(); // Attempt to gracefully leave/close connections
+        leaveRoom(); // Attempt to gracefully leave/close P2P connections for the current room
+        closePeerSession(); // And fully destroy the peer object
     }
 });
