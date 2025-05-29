@@ -58,14 +58,11 @@ const peerJsCallbacks = {
             // and show lobby.
             ui.showLobbyScreen();
             ui.updateLobbyUI();
+            ui.updateGameModeUI();        // apply all the general UI toggles…
             
-            // IMPORTANT: Display QR code BEFORE calling updateGameModeUI
             const gameLink = `${CAJITAS_BASE_URL}/?room=${id}&slots=${state.networkRoomData.maxPlayers}`;
-            ui.displayQRCode(gameLink, `${state.CAJITAS_PEER_ID_PREFIX}${id}`,
+            ui.displayQRCode(gameLink, `${state.CAJITAS_PEER_ID_PREFIX}${id}`,  // …then show the QR area last
                 `Compartí este enlace o ID para que ${state.networkRoomData.maxPlayers -1} jugador(es) más se unan:`);
-            
-            // Call updateGameModeUI AFTER QR code is displayed to ensure proper state
-            ui.updateGameModeUI();
     
             // If this was a random match host, update matchmaking service
             if (state.networkRoomData.roomState === 'creating_random_match_room') {
@@ -204,7 +201,7 @@ const peerJsCallbacks = {
             state.resetNetworkRoomData();
             state.setPvpRemoteActive(false);
             ui.showSetupScreen();
-            ui.hideQRCode();
+            ui.hideNetworkInfo(); // Use updated function name
         } 
     }
 };
@@ -401,7 +398,7 @@ function handleClientDataReception(data, fromLeaderPeerId) {
             state.networkRoomData.turnCounter = data.initialGameState.turnCounter;
 
             gameLogic.initializeGame(true); 
-            ui.showGameScreen();
+            ui.showGameScreen(); // This will call ui.hideNetworkInfo()
             ui.updateMessageArea("¡El juego ha comenzado!", false, 5000);
             break;
 
@@ -523,8 +520,11 @@ export function hostNewRoom(hostPlayerData, gameSettings, isRandomMatchHost = fa
                 roomId: hostPeerId,
                 leaderPeerId: hostPeerId,
             });
-            console.log(`[PeerConn] Room created by host. Room ID (Host Peer ID): ${hostPeerId}`);
+            // This log is now handled in the main peerJsCallbacks.onPeerOpen
+            // console.log(`[PeerConn] Room created by host. Room ID (Host Peer ID): ${hostPeerId}`); 
             ui.hideModalMessage();
+            // The main onPeerOpen (the one from peerJsCallbacks object) will be triggered by init,
+            // and it will call the necessary UI updates in the new order.
         },
         onError: (err) => {
             ui.hideModalMessage();
@@ -557,6 +557,7 @@ export function joinRoomById(leaderPeerIdToJoin, joinerPlayerData) {
         onPeerOpen: (myPeerId) => { 
             state.setMyPeerId(myPeerId);
             state.networkRoomData.players[0].peerId = myPeerId; 
+            // The main onPeerOpen will handle connection attempt if leaderPeerId is set
         },
         onError: (err) => {
             ui.hideModalMessage();
@@ -587,6 +588,7 @@ export function leaveRoom() {
 }
 
 // --- Sending Data ---
+// ... (sendDataToLeader, sendDataToClient, broadcastToRoom, broadcastRoomState remain unchanged)
 function sendDataToLeader(data) {
     if (leaderConnection && leaderConnection.open) {
         console.log(`[PeerConn C] TX to Leader: Type: ${data.type}`, data);
@@ -627,8 +629,8 @@ function broadcastRoomState() {
         }
     });
 }
-
 // --- Public Functions for Main.js to Call ---
+// ... (sendPlayerReadyState, sendStartGameRequest, sendGameMoveToLeader remain unchanged) ...
 export function sendPlayerReadyState(isReady) {
     if (state.networkRoomData.isRoomLeader) {
         const leaderData = state.networkRoomData.players.find(p => p.peerId === state.myPeerId);
@@ -670,7 +672,7 @@ export function sendStartGameRequest() {
     state.networkRoomData.turnCounter = 0; 
 
     gameLogic.initializeGame(true); 
-    ui.showGameScreen(); 
+    ui.showGameScreen(); // This will call ui.hideNetworkInfo()
 
     broadcastToRoom({
         type: MSG_TYPE.GAME_STARTED,

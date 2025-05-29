@@ -58,7 +58,7 @@ export function showSetupScreen() {
     if (gameArea) gameArea.classList.add('hidden');
     if (lobbyArea) lobbyArea.classList.add('hidden');
     if (mainTitle) mainTitle.textContent = "Cajitas de Danielle";
-    hideQRCode();
+    hideNetworkInfo(); // Use new function to hide QR/Network info
     updateGameModeUI(); 
 }
 
@@ -67,6 +67,7 @@ export function showLobbyScreen() {
     if (gameArea) gameArea.classList.add('hidden');
     if (lobbyArea) lobbyArea.classList.remove('hidden');
     if (mainTitle) mainTitle.textContent = "Sala de Espera";
+    // QR code visibility is handled by displayQRCode and hideNetworkInfo explicitly
 }
 
 export function showGameScreen() {
@@ -74,7 +75,7 @@ export function showGameScreen() {
     if (gameArea) gameArea.classList.remove('hidden');
     if (lobbyArea) lobbyArea.classList.add('hidden');
     if (mainTitle) mainTitle.textContent = "¡A Jugar!";
-    hideQRCode();
+    hideNetworkInfo(); // Use new function to hide QR/Network info
 }
 
 // ---------- LOBBY UI FUNCTIONS ----------
@@ -352,6 +353,7 @@ export function generatePlayerSetupFields(count, forNetwork = false) {
 }
 
 // ---------- SVG BOARD DRAWING FUNCTIONS ----------
+// ... (drawBoardSVG, drawVisualLineOnBoard, fillBoxOnBoard, clearBoardForNewGame, removeVisualLineFromBoard, removeFilledBoxFromBoard remain unchanged) ...
 export function drawBoardSVG() {
     if (!gameBoardSVG) return;
     gameBoardSVG.innerHTML = '';
@@ -514,8 +516,22 @@ export function removeFilledBoxFromBoard(br, bc) {
         setTimeout(() => { if (textElement.parentNode) textElement.remove(); }, 300);
     }
 }
-
 // ---------- NETWORK UI FUNCTIONS (QR, Info Area) ----------
+
+/**
+ * Hide the QR/link area.
+ */
+export function hideNetworkInfo() {
+  if (networkInfoArea) networkInfoArea.classList.add('hidden');
+  if (qrCodeContainer) qrCodeContainer.innerHTML = ''; // Clear QR code content
+}
+
+/**
+ * Draw a QR code + copy-link button
+ * @param {string} gameLink  The link you want to share
+ * @param {string} displayId The human-readable ID for display
+ * @param {string} message   The instructional message
+ */
 export function displayQRCode(gameLink, displayId, message = "Compartí este enlace o ID para que se unan a tu sala:") {
     if (!networkInfoArea || !qrCodeContainer || !copyGameIdButton || !networkInfoTitle || !networkInfoText) {
         console.error("[UI] QR Code or Network Info Area elements not found!");
@@ -525,48 +541,52 @@ export function displayQRCode(gameLink, displayId, message = "Compartí este enl
     if (!window.QRious) {
         console.warn('[UI] QRious library not loaded.');
         showModalMessage(`ID de Sala: ${displayId}. Enlace: ${gameLink}. (Error QR Lib)`);
-        networkInfoText.textContent = `ID: ${displayId}. Link: ${gameLink}`;
+        networkInfoText.textContent = `ID: ${displayId}. Link: ${gameLink}`; // Show basic info if QR lib fails
+        if (networkInfoArea) networkInfoArea.classList.remove('hidden'); // Still try to show the text info
         return;
     }
 
     console.log("[UI] displayQRCode: Making network info area visible and populating QR code");
     
     // CRITICAL: Ensure the area is visible FIRST
-    networkInfoArea.classList.remove('hidden');
-    networkInfoTitle.textContent = "¡Sala Creada!";
-    networkInfoText.textContent = `${message} ID: ${displayId}`;
+    if (networkInfoArea) networkInfoArea.classList.remove('hidden');
+    if (networkInfoTitle) networkInfoTitle.textContent = "¡Sala Creada!"; // Consistent title
+    if (networkInfoText) networkInfoText.textContent = `${message} ID: ${displayId}`;
 
-    // Force a style recalculation to ensure visibility
-    if (networkInfoArea) networkInfoArea.offsetHeight; // Trigger reflow
 
-    qrCodeContainer.innerHTML = ''; // Clear previous QR
+    // Force a style recalculation to ensure visibility if issues persist
+    if (networkInfoArea) networkInfoArea.offsetHeight; 
+
+    if (qrCodeContainer) qrCodeContainer.innerHTML = ''; // Clear previous QR
     const canvas = document.createElement('canvas');
     try {
         new QRious({
             element: canvas,
             value: gameLink,
             size: 160, padding: 8, level: 'H',
-            foreground: '#A020F0', background: '#FFF8FB' // Purple theme
+            foreground: '#A020F0', background: '#FFF8FB' 
         });
-        qrCodeContainer.appendChild(canvas);
+        if (qrCodeContainer) qrCodeContainer.appendChild(canvas);
         console.log("[UI] QR code generated and added to container");
     } catch(e) {
         console.error("[UI] Error generating QR code:", e);
-        qrCodeContainer.textContent = "Error QR.";
-        networkInfoText.textContent += " (Error al generar QR)";
+        if (qrCodeContainer) qrCodeContainer.textContent = "Error QR.";
+        if (networkInfoText) networkInfoText.textContent += " (Error al generar QR)";
         showModalMessage(`Error al generar QR. ID: ${displayId}. Link: ${gameLink}`);
         return;
     }
 
-    copyGameIdButton.textContent = "Copiar Enlace de Sala";
-    copyGameIdButton.onclick = () => {
-        navigator.clipboard.writeText(gameLink)
-            .then(() => updateMessageArea('¡Enlace de la sala copiado!', false, 2000))
-            .catch(err => {
-                console.error('[UI] Error copying game link:', err);
-                updateMessageArea('Error al copiar enlace.', true, 2000);
-            });
-    };
+    if (copyGameIdButton) {
+        copyGameIdButton.textContent = "Copiar Enlace de Sala";
+        copyGameIdButton.onclick = () => {
+            navigator.clipboard.writeText(gameLink)
+                .then(() => updateMessageArea('¡Enlace de la sala copiado!', false, 2000))
+                .catch(err => {
+                    console.error('[UI] Error copying game link:', err);
+                    updateMessageArea('Error al copiar enlace.', true, 2000);
+                });
+        };
+    }
 
     // Double-check visibility after setup
     if (networkInfoArea && networkInfoArea.classList.contains('hidden')) {
@@ -575,66 +595,44 @@ export function displayQRCode(gameLink, displayId, message = "Compartí este enl
     }
 }
 
-export function hideQRCode() {
-    if (networkInfoArea) networkInfoArea.classList.add('hidden');
-    if (qrCodeContainer) qrCodeContainer.innerHTML = '';
-}
-
 export function updateGameModeUI() {
     // This function now primarily controls visibility of setup vs lobby vs game
     // and enables/disables form inputs.
-    // Actual display of QR or matchmaking messages might be handled more specifically.
+    // QR code / network-info-area visibility is handled by displayQRCode and hideNetworkInfo.
 
-    const inSetup = setupSection && !setupSection.classList.contains('hidden');
     const inLobby = lobbyArea && !lobbyArea.classList.contains('hidden');
-    // const inGame = gameArea && !gameArea.classList.contains('hidden'); // Not needed directly for this logic
-
-    // Disable setup inputs if in lobby or if a network game is active (even if momentarily on game screen before full init)
     const disableSetup = inLobby || state.pvpRemoteActive;
 
     if(rowsInput) rowsInput.disabled = disableSetup;
     if(colsInput) colsInput.disabled = disableSetup;
-    if(numPlayersInput) numPlayersInput.disabled = disableSetup; // Local player count
-    if(networkMaxPlayersSelect) networkMaxPlayersSelect.disabled = disableSetup; // Network max player count
+    if(numPlayersInput) numPlayersInput.disabled = disableSetup; 
+    if(networkMaxPlayersSelect) networkMaxPlayersSelect.disabled = disableSetup; 
 
     playerCustomizationArea?.querySelectorAll('input, select').forEach(el => {
         if(el) el.disabled = disableSetup;
     });
     
-    // Start game button for local games
     if (startGameBtn) startGameBtn.style.display = state.pvpRemoteActive ? 'none' : 'block';
 
-    // Network hosting/joining buttons
     if (hostGameButton) hostGameButton.style.display = state.pvpRemoteActive ? 'none' : 'inline-block';
     if (playRandomButton) playRandomButton.style.display = state.pvpRemoteActive ? 'none' : 'inline-block';
 
-    // CRITICAL FIX: Ensure QR code area is visible when hosting and waiting for players
-    if (state.pvpRemoteActive && state.networkRoomData.isRoomLeader && state.networkRoomData.roomId && 
-        (state.networkRoomData.roomState === 'waiting_for_players' || state.networkRoomData.roomState === 'creating_random_match_room')) {
-        // Host is waiting for players - ensure QR code area is visible
-        if (networkInfoArea && networkInfoArea.classList.contains('hidden')) {
-            console.log("[UI] updateGameModeUI: Ensuring QR code area is visible for host waiting for players");
-            networkInfoArea.classList.remove('hidden');
-        }
-    }
-
-    // Cancel matchmaking button visibility
-    if (cancelMatchmakingButton) {
-        const isMatchmaking = state.pvpRemoteActive &&
-                                  state.networkRoomData.roomState === 'seeking_match' || 
-                                 (state.networkRoomData.roomState === 'idle' && playRandomButton.style.display === 'none' && !state.networkRoomData.roomId);
+    // Visibility of Cancel Matchmaking Button & its associated message in networkInfoArea
+    if (cancelMatchmakingButton && networkInfoArea && networkInfoTitle && networkInfoText && qrCodeContainer) {
+        const isMatchmaking = state.pvpRemoteActive && state.networkRoomData.roomState === 'seeking_match';
 
         cancelMatchmakingButton.style.display = isMatchmaking ? 'inline-block' : 'none';
-        if (isMatchmaking && networkInfoArea && networkInfoText) {
-            networkInfoArea.classList.remove('hidden');
+
+        if (isMatchmaking) {
+            networkInfoArea.classList.remove('hidden'); // Show the area for matchmaking message
             networkInfoTitle.textContent = "Buscando Partida...";
             networkInfoText.textContent = "Intentando encontrar oponentes al azar...";
             qrCodeContainer.innerHTML = ''; // No QR for random matchmaking search
-        } else if (!isMatchmaking && networkInfoArea && networkInfoTitle && networkInfoTitle.textContent === "Buscando Partida...") {
-            if (!state.networkRoomData.roomId) hideQRCode(); 
-        } else if (!state.pvpRemoteActive || (!state.networkRoomData.roomId && !isMatchmaking)) {
-            if (networkInfoArea && networkInfoTitle && networkInfoTitle.textContent !== "¡Sala Creada!") {
-                 hideQRCode();
+        } else {
+            // If not matchmaking, and not actively showing a created room, hide the matchmaking-specific message.
+            // displayQRCode and hideNetworkInfo will manage the area for actual room links.
+            if (networkInfoTitle.textContent === "Buscando Partida...") {
+                hideNetworkInfo(); 
             }
         }
     }
