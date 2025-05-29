@@ -5,7 +5,7 @@ import * as ui from './ui.js';
 import * as gameLogic from './gameLogic.js';
 import * as matchmaking from './matchmaking_supabase.js';
 
-const CAJITAS_BASE_URL = "https://cajitas.martinez.fyi"; // Or your game's URL
+const CAJITAS_BASE_URL = "https://cajitas.martinez.fyi"; 
 
 let connections = new Map();
 let leaderConnection = null; 
@@ -32,73 +32,93 @@ const peerJsCallbacks = {
         console.log(`[PeerConn] Global onPeerOpen triggered with ID: ${id}. pvpRemoteActive: ${state.pvpRemoteActive}`);
         state.setMyPeerId(id); 
 
-        if (!state.pvpRemoteActive) {
-            console.log('[PeerConn] onPeerOpen: Not in active PvP mode (likely pre-initialization). Returning.');
-            // If you needed to store this id for a join-by-URL that happens before user clicks anything,
-            // you could set a temporary state variable like state.setPrelimPeerId(id);
-            // For now, joinRoomById and hostNewRoom handle their own ensurePeerInitialized context.
+        if (!state.pvpRemoteActive && !(window.cajitasJoinRoomOnLoad && window.cajitasJoinRoomOnLoad.roomId === id.replace(state.CAJITAS_PEER_ID_PREFIX, ''))) {
+            console.log('[PeerConn] onPeerOpen: Not in active PvP mode (likely pre-initialization or joining via URL before pvpRemoteActive is set). Returning.');
+            // If there's a setup promise waiting (e.g. from hostNewRoom), and this pre-init somehow intereferes,
+            // we might need to reject it or handle it. But pvpRemoteActive should be set by hostNewRoom first.
+            // For now, if not pvpRemoteActive, assume it's a pre-init.
+            if (state.networkRoomData?._setupErrorCallback && !state.pvpRemoteActive) {
+                // This case should ideally not be hit if pvpRemoteActive is set before ensurePeerInitialized
+                // in hostNewRoom. But as a safeguard:
+                // state.networkRoomData._setupErrorCallback(new Error("onPeerOpen called when pvpRemoteActive is false during hosting."));
+                // delete state.networkRoomData._setupCompleteCallback;
+                // delete state.networkRoomData._setupErrorCallback;
+            }
             return;
         }
 
-        // If we've reached here, pvpRemoteActive is true.
-        // This means an active attempt to host or join is in progress.
+        if (state.networkRoomData.isRoomLeader && 
+            (state.networkRoomData.roomState === 'waiting_for_players' || state.networkRoomData.roomState === 'creating_random_match_room')) {
+            
+            if (!state.networkRoomData.roomId) { // Room ID not yet set from PeerID
+                console.log('[PeerConn] onPeerOpen: Finalizing host setup.');
 
-        if (state.networkRoomData.isRoomLeader && !state.networkRoomData.roomId) {
-            // This is the flow for a host whose PeerJS has just opened,
-            // and whose roomID hasn't been set from their peerID yet.
-            // state.networkRoomData should have been partially set up by hostNewRoom().
-            console.log('[PeerConn] onPeerOpen: Finalizing host setup.');
+                if (!state.networkRoomData || !state.networkRoomData.players || !state.networkRoomData.players[0]) {
+                    console.error('[PeerConn] onPeerOpen Error: networkRoomData or players array not initialized for host!');
+                    ui.showModalMessage("Error crítico al crear la sala. Faltan datos del anfitrión.");
+                    if (state.networkRoomData._setupErrorCallback) {
+                        state.networkRoomData._setupErrorCallback(new Error("networkRoomData or players array not initialized for host"));
+                        delete state.networkRoomData._setupCompleteCallback;
+                        delete state.networkRoomData._setupErrorCallback;
+                    }
+                    return;
+                }
+                
+                state.networkRoomData.players[0].peerId = id; 
+                state.setNetworkRoomData({ 
+                    roomId: id, 
+                    leaderPeerId: id,
+                    players: [...state.networkRoomData.players] 
+                }); 
 
-            if (!state.networkRoomData || !state.networkRoomData.players || !state.networkRoomData.players[0]) {
-                console.error('[PeerConn] onPeerOpen Error: networkRoomData or players array not initialized for host! This should not happen if hostNewRoom ran correctly.');
-                ui.showModalMessage("Error crítico al crear la sala: Faltan datos del anfitrión.");
-                // Consider resetting state or other error handling
-                state.resetNetworkRoomData();
-                state.setPvpRemoteActive(false);
-                ui.showSetupScreen();
-                return;
+                console.log(`[PeerConn] Room setup complete. Room ID (Host Peer ID): ${id}. Host player PeerID set to: ${state.networkRoomData.players[0].peerId}`);
+
+                ui.showLobbyScreen();
+                ui.updateLobbyUI();
+                ui.updateGameModeUI(); 
+                
+                const gameLink = `${CAJITAS_BASE_URL}/?room=${id}&slots=${state.networkRoomData.maxPlayers}`;
+                ui.displayQRCode(gameLink, `${state.CAJITAS_PEER_ID_PREFIX}${id}`,
+                    `Compartí este enlace o ID para que ${state.networkRoomData.maxPlayers - 1} jugador(es) más se unan:`);
+                
+                if (state.networkRoomData.roomState === 'creating_random_match_room') {
+                    matchmaking.updateHostedRoomStatus(id, state.networkRoomData.gameSettings, state.networkRoomData.maxPlayers, state.networkRoomData.players.length);
+                    // roomState is already creating_random_match_room, will transition if needed
+                }
+                ui.hideModalMessage(); 
+
+                if (state.networkRoomData._setupCompleteCallback) {
+                    state.networkRoomData._setupCompleteCallback(id); // Resolve the promise from hostNewRoom
+                    delete state.networkRoomData._setupCompleteCallback;
+                    delete state.networkRoomData._setupErrorCallback;
+                }
+
+            } else if (state.networkRoomData.roomId === id) {
+                // Peer reconnected as host, or onPeerOpen fired again for an already set up host.
+                console.log('[PeerConn] onPeerOpen: Host PeerJS reconnected or event fired again for existing room. Ensuring UI.');
+                ui.showLobbyScreen();
+                ui.updateLobbyUI();
+                ui.updateGameModeUI();
+                const gameLink = `${CAJITAS_BASE_URL}/?room=${id}&slots=${state.networkRoomData.maxPlayers}`;
+                ui.displayQRCode(gameLink, `${state.CAJITAS_PEER_ID_PREFIX}${id}`,
+                    `Compartí este enlace o ID para que ${state.networkRoomData.maxPlayers - 1} jugador(es) más se unan:`);
+                ui.hideModalMessage(); 
+                 if (state.networkRoomData._setupCompleteCallback) { // If somehow still pending
+                    state.networkRoomData._setupCompleteCallback(id);
+                    delete state.networkRoomData._setupCompleteCallback;
+                    delete state.networkRoomData._setupErrorCallback;
+                }
             }
-            
-            // Set the host's actual peerId in their player object
-            state.networkRoomData.players[0].peerId = id; 
-            // Now set the canonical room ID and ensure players array update is recognized
-            state.setNetworkRoomData({ 
-                roomId: id, 
-                leaderPeerId: id,
-                players: [...state.networkRoomData.players] // Propagate change to players array
-            }); 
 
-            console.log(`[PeerConn] Room setup complete. Room ID (Host Peer ID): ${id}. Host player PeerID set to: ${state.networkRoomData.players[0].peerId}`);
-
-            // UI Sequence (show lobby, update general UI, then show QR)
-            ui.showLobbyScreen();
-            ui.updateLobbyUI();
-            ui.updateGameModeUI(); 
-            
-            const gameLink = `${CAJITAS_BASE_URL}/?room=${id}&slots=${state.networkRoomData.maxPlayers}`;
-            ui.displayQRCode(gameLink, `${state.CAJITAS_PEER_ID_PREFIX}${id}`,
-                `Compartí este enlace o ID para que ${state.networkRoomData.maxPlayers - 1} jugador(es) más se unan:`);
-            
-            if (state.networkRoomData.roomState === 'creating_random_match_room') {
-                matchmaking.updateHostedRoomStatus(id, state.networkRoomData.gameSettings, state.networkRoomData.maxPlayers, state.networkRoomData.players.length);
-                state.setNetworkRoomData({ roomState: 'waiting_for_players' });
-            }
-            ui.hideModalMessage(); // Hide "Creando sala..."
-
-        } else if (state.networkRoomData.isRoomLeader && state.networkRoomData.roomId === id) {
-            // This case handles if onPeerOpen fires again for an already set-up host (e.g., PeerServer reconnection)
-            console.log('[PeerConn] onPeerOpen: Host PeerJS reconnected or event fired again for existing room. Ensuring UI is correct.');
-            ui.showLobbyScreen();
-            ui.updateLobbyUI();
-            ui.updateGameModeUI();
-            const gameLink = `${CAJITAS_BASE_URL}/?room=${id}&slots=${state.networkRoomData.maxPlayers}`;
-            ui.displayQRCode(gameLink, `${state.CAJITAS_PEER_ID_PREFIX}${id}`,
-                `Compartí este enlace o ID para que ${state.networkRoomData.maxPlayers - 1} jugador(es) más se unan:`);
-            ui.hideModalMessage(); 
-
-        } else if (!state.networkRoomData.isRoomLeader && state.networkRoomData.leaderPeerId && !leaderConnection) {
-            // This is the flow for a joiner whose PeerJS has just opened.
+        } else if (!state.networkRoomData.isRoomLeader && state.networkRoomData.leaderPeerId && !leaderConnection && state.pvpRemoteActive) {
+            // This is the flow for a joiner whose PeerJS has just opened and pvpRemoteActive is true.
             console.log(`[PeerConn] onPeerOpen: Joiner's PeerJS opened (ID: ${id}). Attempting to connect to leader: ${state.networkRoomData.leaderPeerId}`);
+            // Update my player data with the obtained peerId if not already set (e.g. in joinRoomById's local onPeerOpen)
+            if (state.networkRoomData.players && state.networkRoomData.players[0] && state.networkRoomData.players[0].peerId === null) {
+                state.networkRoomData.players[0].peerId = id;
+                 // state.setNetworkRoomData({ players: [...state.networkRoomData.players] }); // Not strictly needed if joinRoomById also does this
+            }
+
             if (window.peerJsMultiplayer?.connect) {
                 const connToLeader = window.peerJsMultiplayer.connect(state.networkRoomData.leaderPeerId);
                 if (connToLeader) {
@@ -112,7 +132,7 @@ const peerJsCallbacks = {
                 peerJsCallbacks.onError({type: 'connect_error', message: 'PeerJS connect not available.'});
             }
         } else {
-            console.log(`[PeerConn] onPeerOpen: PeerJS opened with ID ${id}, but current state (pvpActive: ${state.pvpRemoteActive}, isLeader: ${state.networkRoomData.isRoomLeader}, roomId: ${state.networkRoomData.roomId}) doesn't match primary hosting/joining flows in this callback.`);
+            console.log(`[PeerConn] onPeerOpen: PeerJS opened with ID ${id}, but current state (pvpActive: ${state.pvpRemoteActive}, isLeader: ${state.networkRoomData.isRoomLeader}, roomState: ${state.networkRoomData.roomState}, roomId: ${state.networkRoomData.roomId}) doesn't match primary hosting/joining flows in this callback.`);
         }
     },
 
@@ -122,32 +142,42 @@ const peerJsCallbacks = {
             conn.on('open', () => conn.close()); 
             return;
         }
-        if (state.networkRoomData.players.length >= state.networkRoomData.maxPlayers) {
-            console.warn(`[PeerJS] Room is full. Rejecting connection from ${conn.peer}.`);
-            conn.on('open', () => {
+        // Check if room is full based on players who are 'active' or 'pending' but not yet rejected
+        const activeOrPendingPlayers = Array.from(connections.values()).filter(c => c.status !== 'rejected').length + 1; // +1 for leader
+        if (activeOrPendingPlayers >= state.networkRoomData.maxPlayers && !connections.has(conn.peer)) { // Only reject new peers if full
+            console.warn(`[PeerJS] Room is full (${activeOrPendingPlayers-1} connected/pending out of ${state.networkRoomData.maxPlayers-1} slots). Rejecting new connection from ${conn.peer}.`);
+            conn.on('open', () => { // Ensure connection is open before sending and closing
                 conn.send({ type: MSG_TYPE.JOIN_REJECTED, reason: 'room_full' });
                 setTimeout(() => conn.close(), 500); 
             });
+            // Optionally mark this conn attempt as rejected if we were to track it.
             return;
         }
         console.log(`[PeerJS] Leader received incoming connection from ${conn.peer}.`);
+        
+        // Store the connection immediately with a pending status
+        connections.set(conn.peer, { connObject: conn, status: 'pending_join_request' }); // Store the actual PeerJS connection object
         setupConnectionEventHandlers(conn, false); 
     },
 
     onConnectionOpen: (peerId) => { 
         console.log(`[PeerJS] Data connection opened with ${peerId}.`);
+        const connEntry = connections.get(peerId);
+
         if (state.networkRoomData.isRoomLeader) {
-            console.log(`[PeerConn] Leader: Connection from ${peerId} is now open. Waiting for their join request.`);
-             const conn = connections.get(peerId);
-             if(conn && conn.open) {
-             } else {
-                console.warn(`[PeerConn] Leader: Connection object for ${peerId} not found or not open after 'open' event.`);
-             }
+            console.log(`[PeerConn] Leader: Connection from client ${peerId} is now open. Waiting for their join request.`);
+            if (connEntry && connEntry.status === 'pending_join_request') {
+                // Client should now send REQUEST_JOIN_ROOM
+            } else if (connEntry && connEntry.status === 'active') {
+                console.log(`[PeerConn] Leader: Re-established or already active connection with ${peerId}.`);
+            } else {
+                console.warn(`[PeerConn] Leader: Connection opened with ${peerId}, but no matching pending/active entry in connections map or unexpected status.`);
+            }
         } else { 
             if (peerId === state.networkRoomData.leaderPeerId && leaderConnection && leaderConnection.open) {
                 console.log(`[PeerConn] Client: Connection to leader ${peerId} is now open. Sending join request.`);
                 const myPlayerDataFromState = state.networkRoomData.players.find(p => p.peerId === state.myPeerId); 
-                if (myPlayerDataFromState) { // Player data should exist from joinRoomById
+                if (myPlayerDataFromState) { 
                     sendDataToLeader({
                         type: MSG_TYPE.REQUEST_JOIN_ROOM,
                         playerData: { 
@@ -179,17 +209,22 @@ const peerJsCallbacks = {
     onConnectionClose: (peerId) => {
         console.log(`[PeerJS] Connection with ${peerId} closed.`);
         if (state.networkRoomData.isRoomLeader) {
-            const leavingPlayer = state.networkRoomData.players.find(p => p.peerId === peerId);
-            if (leavingPlayer) {
-                state.removePlayerFromNetworkRoom(peerId);
-                connections.delete(peerId);
-                broadcastToRoom({ type: MSG_TYPE.PLAYER_LEFT, playerId: leavingPlayer.id, peerId: peerId });
-                reassignPlayerIdsAndBroadcastUpdate();
-                ui.updateLobbyUI(); 
-                if (state.networkRoomData.roomState === 'in_game' && state.networkRoomData.players.length < state.MIN_PLAYERS_NETWORK) {
-                    ui.showModalMessage(`Jugador ${leavingPlayer.name} se desconectó. No hay suficientes jugadores para continuar.`);
-                    gameLogic.endGameAbruptly(); 
-                    state.setNetworkRoomData({ roomState: 'game_over' }); 
+            const connEntry = connections.get(peerId);
+            if (connEntry) { // Check if the connection was tracked
+                connections.delete(peerId); // Remove from map
+                const leavingPlayer = state.networkRoomData.players.find(p => p.peerId === peerId);
+                if (leavingPlayer) {
+                    state.removePlayerFromNetworkRoom(peerId); // This filters players array
+                    broadcastToRoom({ type: MSG_TYPE.PLAYER_LEFT, playerId: leavingPlayer.id, peerId: peerId });
+                    reassignPlayerIdsAndBroadcastUpdate(); // This will update players array in state and broadcast
+                    ui.updateLobbyUI(); 
+                    if (state.networkRoomData.roomState === 'in_game' && state.networkRoomData.players.length < state.MIN_PLAYERS_NETWORK) {
+                        ui.showModalMessage(`Jugador ${leavingPlayer.name} se desconectó. No hay suficientes jugadores para continuar.`);
+                        gameLogic.endGameAbruptly(); 
+                        state.setNetworkRoomData({ roomState: 'game_over' }); 
+                    }
+                } else {
+                     console.warn(`[PeerConn] Connection closed with ${peerId}, but no matching player found in room data.`);
                 }
             }
         } else { 
@@ -214,24 +249,29 @@ const peerJsCallbacks = {
             if (err.type === 'peer-unavailable' || err.type === 'unavailable-id') {
                 const peerIdMsgPart = peerIdContext || err.message.match(/peer\s(.+)/)?.[1] || state.networkRoomData.leaderPeerId || 'remoto';
                 message = `No se pudo conectar al jugador: ${peerIdMsgPart}. Verificá el ID/disponibilidad.`;
-                 if (state.networkRoomData.roomState === 'connecting_to_lobby' || state.networkRoomData.roomState === 'awaiting_join_approval') {
-                    state.resetNetworkRoomData();
-                    state.setPvpRemoteActive(false);
-                    ui.showSetupScreen();
-                 }
             } else if (err.type === 'network') {
                 message = "Error de red. Verificá tu conexión a internet.";
             } else if (err.type === 'webrtc') {
                 message = "Error de WebRTC. Puede ser un problema de firewall o red.";
             } else if (err.type === 'disconnected') {
-                 message = "Desconectado del servidor PeerJS. Intentando reconectar...";
+                 message = "Desconectado del servidor PeerJS. Verifica tu conexión.";
             }
         }
-        ui.showModalMessage(`Error de conexión: ${message}`);
+        
+        if (state.networkRoomData && state.networkRoomData._setupErrorCallback) {
+            state.networkRoomData._setupErrorCallback(new Error(message));
+            delete state.networkRoomData._setupCompleteCallback;
+            delete state.networkRoomData._setupErrorCallback;
+        } else {
+            ui.showModalMessage(`Error de conexión: ${message}`);
+        }
         ui.updateMessageArea("Error de conexión.", true);
         
-        if (!state.networkRoomData.isRoomLeader && (state.networkRoomData.roomState === 'connecting_to_lobby' || state.networkRoomData.roomState === 'awaiting_join_approval')) {
-            // If client fails to connect or has error during these states, reset.
+        // More robust reset if client fails during connection attempts
+        if (!state.networkRoomData.isRoomLeader && 
+            (state.networkRoomData.roomState === 'connecting_to_lobby' || 
+             state.networkRoomData.roomState === 'awaiting_join_approval' ||
+             !leaderConnection || (leaderConnection && !leaderConnection.open))) {
             state.resetNetworkRoomData();
             state.setPvpRemoteActive(false);
             ui.showSetupScreen();
@@ -242,39 +282,52 @@ const peerJsCallbacks = {
 
 function reassignPlayerIdsAndBroadcastUpdate() {
     if (!state.networkRoomData.isRoomLeader) return;
-    const connectedPlayers = state.networkRoomData.players.filter(p => p.isConnected);
+    const connectedPlayers = state.networkRoomData.players.filter(p => p.isConnected !== false); // Assume isConnected is true unless explicitly false
     
-    connectedPlayers.sort((a, b) => a.id - b.id); // Preserve order of those remaining as much as possible
+    connectedPlayers.sort((a, b) => a.id - b.id); 
 
-    let idChanged = false;
+    let idChangedOrPlayerRemoved = false;
+    if (connectedPlayers.length !== state.networkRoomData.players.length) {
+        idChangedOrPlayerRemoved = true;
+    }
+
     connectedPlayers.forEach((player, index) => {
         if (player.id !== index) {
-            idChanged = true;
+            idChangedOrPlayerRemoved = true;
         }
         player.id = index; 
         if (player.peerId === state.myPeerId) { 
             state.setNetworkRoomData({ myPlayerIdInRoom: index });
         }
     });
-    // Update the main players list in the state, keeping only connected ones with re-assigned IDs
     state.setNetworkRoomData({ players: connectedPlayers }); 
 
-    if (idChanged || true) { 
+    if (idChangedOrPlayerRemoved) { 
        broadcastRoomState();
     }
 }
 
 function handleLeaderDataReception(data, fromPeerId) {
-    const clientConn = connections.get(fromPeerId);
+    const connEntryWrapper = connections.get(fromPeerId);
+    const clientConn = connEntryWrapper ? connEntryWrapper.connObject : null;
+
     if (!clientConn && data.type !== MSG_TYPE.REQUEST_JOIN_ROOM) { 
-        console.warn(`[PeerConn L] Data from unknown or untracked peer ${fromPeerId}. Type: ${data.type}. Ignored.`);
+        console.warn(`[PeerConn L] Data from ${fromPeerId} but no connection object found (or not yet established for non-join message). Type: ${data.type}. Ignored.`);
         return;
     }
+    // For REQUEST_JOIN_ROOM, connEntryWrapper.status should be 'pending_join_request'
 
     switch (data.type) {
         case MSG_TYPE.REQUEST_JOIN_ROOM:
+            if (!connEntryWrapper || connEntryWrapper.status !== 'pending_join_request') {
+                console.warn(`[PeerConn L] REQUEST_JOIN_ROOM from ${fromPeerId} but no valid pending connection found. Status: ${connEntryWrapper?.status}. Ignoring.`);
+                clientConn?.send({ type: MSG_TYPE.JOIN_REJECTED, reason: 'internal_server_error_or_stale_request' });
+                return;
+            }
+
             if (state.networkRoomData.players.length >= state.networkRoomData.maxPlayers) {
-                clientConn?.send({ type: MSG_TYPE.JOIN_REJECTED, reason: 'room_full' });
+                clientConn.send({ type: MSG_TYPE.JOIN_REJECTED, reason: 'room_full' });
+                connections.set(fromPeerId, { ...connEntryWrapper, status: 'rejected' }); // Update status
                 return;
             }
             const newPlayerId = state.networkRoomData.players.length; 
@@ -288,19 +341,8 @@ function handleLeaderDataReception(data, fromPeerId) {
                 score: 0
             };
             state.addPlayerToNetworkRoom(newPlayer);
-            // Ensure the connection is stored. onNewConnection should have called setupConnectionEventHandlers
-            // which might not store it if we wait for REQUEST_JOIN_ROOM.
-            // Let's ensure it's stored here.
-            const activeConn = window.peerJsMultiplayer.getConnection(fromPeerId); // Helper needed in peerjs-multiplayer.js
-            if (activeConn) { // Or just use 'conn' from onNewConnection if that's reliable. For now, assume clientConn is the one.
-                 connections.set(fromPeerId, clientConn || activeConn);
-            } else if (clientConn) {
-                 connections.set(fromPeerId, clientConn);
-            }
-             else {
-                console.error(`[PeerConn L] No connection object available for ${fromPeerId} upon JOIN_REQUEST.`);
-            }
-
+            
+            connections.set(fromPeerId, clientConn); // Now store the direct connection object, replacing the wrapper. Status is implicitly 'active'.
 
             sendDataToClient(fromPeerId, {
                 type: MSG_TYPE.JOIN_ACCEPTED,
@@ -315,9 +357,14 @@ function handleLeaderDataReception(data, fromPeerId) {
             break;
 
         case MSG_TYPE.PLAYER_READY_CHANGED:
+             if (!connEntryWrapper) { // Ensure we only process from known, active connections
+                console.warn(`[PeerConn L] PLAYER_READY_CHANGED from unknown peer ${fromPeerId}. Ignored.`);
+                return;
+            }
             const playerToUpdate = state.networkRoomData.players.find(p => p.peerId === fromPeerId);
             if (playerToUpdate) {
                 playerToUpdate.isReady = data.isReady;
+                state.setNetworkRoomData({players: [...state.networkRoomData.players]}); // Ensure state update
                 broadcastToRoom({
                     type: MSG_TYPE.PLAYER_READY_CHANGED,
                     playerId: playerToUpdate.id,
@@ -329,6 +376,10 @@ function handleLeaderDataReception(data, fromPeerId) {
             break;
 
         case MSG_TYPE.GAME_MOVE:
+            if (!connEntryWrapper) { 
+                console.warn(`[PeerConn L] GAME_MOVE from unknown peer ${fromPeerId}. Ignored.`);
+                return;
+            }
             if (state.networkRoomData.roomState !== 'in_game' || !state.gameActive) {
                 console.warn("[PeerConn L] Game move received but game not active. Ignored.");
                 return;
@@ -371,26 +422,23 @@ function handleClientDataReception(data, fromLeaderPeerId) {
     switch (data.type) {
         case MSG_TYPE.JOIN_ACCEPTED:
             ui.hideModalMessage();
-            // My initial player data (name, icon, color) was sent to leader.
-            // Leader includes it in roomData.players. Update local state based on that.
-            const myPlayerFromServer = data.roomData.players.find(p => p.id === data.yourPlayerId);
+            const myLocalInitialData = state.networkRoomData.players.find(p => p.peerId === state.myPeerId);
+            const myDataFromServer = data.roomData.players.find(p => p.id === data.yourPlayerId);
 
             state.setNetworkRoomData({
                 myPlayerIdInRoom: data.yourPlayerId,
-                // players: data.roomData.players, // Use this full list
                 gameSettings: data.roomData.gameSettings,
                 maxPlayers: data.roomData.maxPlayers,
                 roomState: 'lobby',
-                // Update players, ensuring my local customizations are preserved if they weren't part of the initial echo from leader
+                leaderPeerId: data.roomData.leaderPeerId || state.networkRoomData.leaderPeerId,
+                roomId: data.roomData.roomId || state.networkRoomData.roomId,
                 players: data.roomData.players.map(p => {
-                    if (p.id === data.yourPlayerId && myPlayerFromServer) {
-                        // My local details before joining (name, icon, color)
-                        const localCustomizations = state.networkRoomData.players.find(lp => lp.peerId === state.myPeerId);
+                    if (p.id === data.yourPlayerId && myDataFromServer && myLocalInitialData) {
                         return {
-                            ...myPlayerFromServer, // Base data from server
-                            name: localCustomizations?.name || myPlayerFromServer.name,
-                            icon: localCustomizations?.icon || myPlayerFromServer.icon,
-                            color: localCustomizations?.color || myPlayerFromServer.color,
+                            ...myDataFromServer, 
+                            name: myLocalInitialData.name, // Prioritize local customizations if available
+                            icon: myLocalInitialData.icon,
+                            color: myLocalInitialData.color,
                         };
                     }
                     return p;
@@ -400,7 +448,7 @@ function handleClientDataReception(data, fromLeaderPeerId) {
             ui.showLobbyScreen();
             ui.updateLobbyUI();
             ui.updateGameModeUI();
-            console.log(`[PeerConn C] Joined room! My Player ID: ${data.yourPlayerId}. Room Data:`, data.roomData);
+            console.log(`[PeerConn C] Joined room! My Player ID: ${data.yourPlayerId}. Room Data:`, state.networkRoomData);
             ui.updateLobbyMessage("¡Te uniste a la sala! Marcate como listo cuando quieras.");
             break;
 
@@ -410,24 +458,34 @@ function handleClientDataReception(data, fromLeaderPeerId) {
             break;
 
         case MSG_TYPE.PLAYER_JOINED:
-            if (data.player.peerId !== state.myPeerId) { // Only add if it's not me
+            if (data.player.peerId !== state.myPeerId) {
                  const existingPlayer = state.networkRoomData.players.find(p => p.peerId === data.player.peerId);
                  if (!existingPlayer) {
                     state.addPlayerToNetworkRoom(data.player);
-                 } else { // Player reconnected or data resent, update instead of adding duplicate
+                 } else { 
                     Object.assign(existingPlayer, data.player);
-                    state.setNetworkRoomData({ players: [...state.networkRoomData.players] }); // Trigger update
+                    state.setNetworkRoomData({ players: [...state.networkRoomData.players] });
                  }
+            } else { // It's me, ensure my data is fully updated if I just joined.
+                const myData = state.networkRoomData.players.find(p=> p.peerId === state.myPeerId);
+                if(myData) Object.assign(myData, data.player);
+                state.setNetworkRoomData({ players: [...state.networkRoomData.players] });
             }
             ui.updateLobbyUI();
             break;
 
         case MSG_TYPE.PLAYER_LEFT:
-            const leftPlayer = state.networkRoomData.players.find(p => p.id === data.playerId);
-            state.removePlayerFromNetworkRoom(data.peerId); 
-            if (leftPlayer) ui.updateLobbyMessage(`${leftPlayer.name} ha salido de la sala.`);
+            const leftPlayer = state.networkRoomData.players.find(p => p.id === data.playerId && p.peerId === data.peerId);
+            if (leftPlayer) {
+                state.removePlayerFromNetworkRoom(data.peerId); 
+                ui.updateLobbyMessage(`${leftPlayer.name} ha salido de la sala.`);
+            } else {
+                // If player not found by ID and PeerId, maybe they were already removed or ID changed.
+                // Check if any player with that peerId exists and remove.
+                state.removePlayerFromNetworkRoom(data.peerId);
+            }
             // Leader will send ROOM_STATE_UPDATE with re-assigned IDs if necessary
-            ui.updateLobbyUI(); // Update UI immediately
+            ui.updateLobbyUI(); 
             break;
 
         case MSG_TYPE.ROOM_STATE_UPDATE:
@@ -436,8 +494,8 @@ function handleClientDataReception(data, fromLeaderPeerId) {
                 gameSettings: data.roomData.gameSettings,
                 maxPlayers: data.roomData.maxPlayers,
                 myPlayerIdInRoom: data.roomData.players.find(p => p.peerId === state.myPeerId)?.id ?? state.networkRoomData.myPlayerIdInRoom,
-                leaderPeerId: data.roomData.leaderPeerId || state.networkRoomData.leaderPeerId, // update leader ID if provided
-                roomId: data.roomData.roomId || state.networkRoomData.roomId, // update room ID if provided
+                leaderPeerId: data.roomData.leaderPeerId || state.networkRoomData.leaderPeerId,
+                roomId: data.roomData.roomId || state.networkRoomData.roomId,
             });
             ui.updateLobbyUI();
             break;
@@ -452,7 +510,7 @@ function handleClientDataReception(data, fromLeaderPeerId) {
 
         case MSG_TYPE.GAME_STARTED:
             console.log("[PeerConn C] Game started by leader!", data.initialGameState);
-            ui.hideNetworkInfo(); // Hide QR/Link area as game starts
+            ui.hideNetworkInfo(); 
             state.setNetworkRoomData({ roomState: 'in_game' });
             state.setPlayersData(data.initialGameState.playersInGameOrder); 
             state.setGameDimensions(data.initialGameState.gameSettings.rows, data.initialGameState.gameSettings.cols);
@@ -500,10 +558,18 @@ function setupConnectionEventHandlers(conn, isToLeaderConnection = false) {
         if (isToLeaderConnection) { 
             peerJsCallbacks.onConnectionOpen(conn.peer); 
         } else { 
-            if (state.networkRoomData.isRoomLeader && !connections.has(conn.peer)) {
-                 console.log(`[PeerConn] Leader: Raw connection from ${conn.peer} opened. Awaiting their formal join request.`);
+             // For leader, onNewConnection stores the conn object with 'pending_join_request'
+             // The generic peerJsCallbacks.onConnectionOpen will be called from peerjs-multiplayer.js
+             // if that library directly invokes it.
+             // Here, we can update the status if this 'open' means the channel is ready before formal join.
+            const connEntry = connections.get(conn.peer);
+            if (connEntry && connEntry.status === 'pending_join_request') {
+                // Update status to indicate channel is open, still awaiting application-level join.
+                // connections.set(conn.peer, { ...connEntry, status: 'channel_open_pending_join' });
+                console.log(`[PeerConn] Leader: Channel with ${conn.peer} is open. Awaiting REQUEST_JOIN_ROOM.`);
             }
-             peerJsCallbacks.onConnectionOpen(conn.peer); 
+            // Call the generic callback, which might be useful for logging or basic state.
+            peerJsCallbacks.onConnectionOpen(conn.peer); 
         }
     });
 
@@ -513,11 +579,12 @@ function setupConnectionEventHandlers(conn, isToLeaderConnection = false) {
 
     conn.on('close', () => {
         peerJsCallbacks.onConnectionClose(conn.peer); 
-        if (isToLeaderConnection) {
-            leaderConnection = null;
-        } else if (state.networkRoomData.isRoomLeader) {
-            connections.delete(conn.peer);
-        }
+        // Redundant: onConnectionClose callback already handles this.
+        // if (isToLeaderConnection) {
+        //     leaderConnection = null;
+        // } else if (state.networkRoomData.isRoomLeader) {
+        //     connections.delete(conn.peer);
+        // }
     });
 
     conn.on('error', (err) => {
@@ -528,29 +595,28 @@ function setupConnectionEventHandlers(conn, isToLeaderConnection = false) {
 export function ensurePeerInitialized(customCallbacks = {}) {
     const mergedCallbacks = { ...peerJsCallbacks, ...customCallbacks };
 
-    if (window.peerJsMultiplayer?.getPeer && window.peerJsMultiplayer.getPeer() && !window.peerJsMultiplayer.getPeer().destroyed) {
+    const existingPeer = window.peerJsMultiplayer?.getPeer();
+    if (existingPeer && !existingPeer.destroyed) {
         const currentPeerId = window.peerJsMultiplayer.getLocalId();
         console.log("[PeerConn] PeerJS already initialized and not destroyed. My ID:", currentPeerId);
         if (currentPeerId) {
-            // If peer already exists and has an ID, immediately call the onPeerOpen from mergedCallbacks
-            // This ensures that if ensurePeerInitialized is called when peer is already open, the logic proceeds.
             mergedCallbacks.onPeerOpen(currentPeerId);
         } else {
-            // This case is tricky: peer object exists but ID is null (e.g., connecting to server).
-            // Rely on PeerJS own 'open' event for this existing peer object,
-            // which should use the global peerJsCallbacks.onPeerOpen.
-            // Or, re-init if this state is problematic. For now, let's log.
-            console.warn("[PeerConn] Peer object exists but ID is null. Waiting for its 'open' event or re-init if needed.");
-            // To be safe, one could re-register the callbacks for the existing peer if PeerJS lib allows it,
-            // or call init which might handle recreation. Let's assume init handles it.
-             window.peerJsMultiplayer.init(null, mergedCallbacks);
+            console.warn("[PeerConn] Peer object exists but ID is null. Waiting for its 'open' event.");
+            // If peer exists but ID is null, it means it's connecting.
+            // We should ensure our mergedCallbacks are used when it *does* open.
+            // This requires peerjs-multiplayer.js to use the latest passed callbacks.
+            // For now, if init is called again, it should destroy and recreate.
+            // The logic in initPeerSession in peerjs-multiplayer.js should handle this.
+            // If we call init again, it will use the new mergedCallbacks.
+            window.peerJsMultiplayer.init(null, mergedCallbacks);
         }
         return;
     }
 
     if (window.peerJsMultiplayer?.init) {
         console.log("[PeerConn] Initializing PeerJS via peerJsMultiplayer.init().");
-        window.peerJsMultiplayer.init(null, mergedCallbacks); // Pass merged callbacks
+        window.peerJsMultiplayer.init(null, mergedCallbacks); 
     } else {
         console.error("[PeerConn] peerJsMultiplayer.init not found.");
         mergedCallbacks.onError({ type: 'init_failed', message: 'Módulo multijugador no disponible.' });
@@ -560,59 +626,72 @@ export function ensurePeerInitialized(customCallbacks = {}) {
 export function hostNewRoom(hostPlayerData, gameSettings, isRandomMatchHost = false) {
     console.log("[PeerConn] hostNewRoom called.");
     state.resetNetworkRoomData(); 
-    state.setPvpRemoteActive(true); // Set this BEFORE ensurePeerInitialized
-    state.setNetworkRoomData({
-        isRoomLeader: true,
-        myPlayerIdInRoom: 0, 
-        gameSettings: { rows: gameSettings.rows, cols: gameSettings.cols },
-        maxPlayers: gameSettings.maxPlayers,
-        players: [{ 
-            id: 0,
-            peerId: null, // Will be set by the global onPeerOpen callback
-            name: hostPlayerData.name,
-            icon: hostPlayerData.icon,
-            color: hostPlayerData.color,
-            isReady: false, 
-            isConnected: true,
-            score: 0
-        }],
-        roomState: isRandomMatchHost ? 'creating_random_match_room' : 'waiting_for_players',
-        gamePaired: false 
-    });
-    ui.showModalMessage("Creando sala de juego...");
+    state.setPvpRemoteActive(true); 
+    
+    return new Promise((resolve, reject) => {
+        state.setNetworkRoomData({
+            isRoomLeader: true,
+            myPlayerIdInRoom: 0, 
+            gameSettings: { rows: gameSettings.rows, cols: gameSettings.cols },
+            maxPlayers: gameSettings.maxPlayers,
+            players: [{ 
+                id: 0,
+                peerId: null, 
+                name: hostPlayerData.name,
+                icon: hostPlayerData.icon,
+                color: hostPlayerData.color,
+                isReady: false, 
+                isConnected: true,
+                score: 0
+            }],
+            roomState: isRandomMatchHost ? 'creating_random_match_room' : 'waiting_for_players',
+            gamePaired: false,
+            _setupCompleteCallback: resolve, // Store resolve for onPeerOpen to call
+            _setupErrorCallback: reject     // Store reject for onPeerOpen or onError to call
+        });
+        
+        ui.showModalMessage("Creando sala de juego...");
 
-    // ensurePeerInitialized will use the global peerJsCallbacks.onPeerOpen,
-    // which is now guarded by state.pvpRemoteActive.
-    // The local onPeerOpen here is just for any actions specific to *this* init call finishing.
-    ensurePeerInitialized({
-        onPeerOpen: (hostPeerId) => { 
-            console.log(`[PeerConn] hostNewRoom's ensurePeerInitialized successfully got PeerID: ${hostPeerId}. Global onPeerOpen will handle full UI setup.`);
-            // ui.hideModalMessage(); // Modal is hidden in the global onPeerOpen after full setup.
-        },
-        onError: (err) => { // Error specific to this PeerJS initialization attempt
-            ui.hideModalMessage();
-            peerJsCallbacks.onError(err); // Use global handler for consistent error display
-            state.resetNetworkRoomData();
-            state.setPvpRemoteActive(false);
-            ui.showSetupScreen();
-        }
+        ensurePeerInitialized({
+            // onPeerOpen for this specific call to ensurePeerInitialized:
+            // The global peerJsCallbacks.onPeerOpen will handle the main logic due to pvpRemoteActive flag
+            onPeerOpen: (hostPeerId) => { 
+                console.log(`[PeerConn] hostNewRoom's local onPeerOpen for PeerID: ${hostPeerId}. Global onPeerOpen should manage full setup.`);
+                // If the global onPeerOpen relies on _setupCompleteCallback being set, it should work.
+                // No need to call resolve/reject here, global onPeerOpen will use the stored ones.
+            },
+            onError: (err) => { 
+                ui.hideModalMessage();
+                // Use the stored reject from the Promise, or global if not specific to this promise.
+                if (state.networkRoomData?._setupErrorCallback) {
+                     state.networkRoomData._setupErrorCallback(err);
+                     delete state.networkRoomData._setupCompleteCallback;
+                     delete state.networkRoomData._setupErrorCallback;
+                } else {
+                    peerJsCallbacks.onError(err); 
+                }
+                state.resetNetworkRoomData();
+                state.setPvpRemoteActive(false);
+                ui.showSetupScreen();
+                // No explicit reject(err) here as _setupErrorCallback handles it if set.
+            }
+        });
     });
 }
 
 export function joinRoomById(leaderPeerIdToJoin, joinerPlayerData) {
     console.log(`[PeerConn] joinRoomById called for leader: ${leaderPeerIdToJoin}`);
     state.resetNetworkRoomData(); 
-    state.setPvpRemoteActive(true); // Set this BEFORE ensurePeerInitialized
+    state.setPvpRemoteActive(true); 
     state.setNetworkRoomData({
         roomId: leaderPeerIdToJoin, 
         leaderPeerId: leaderPeerIdToJoin,
         isRoomLeader: false,
-        players: [{ // Temporary placeholder for self, peerId will be set by global onPeerOpen
+        players: [{ 
             peerId: null, 
             name: joinerPlayerData.name,
             icon: joinerPlayerData.icon,
             color: joinerPlayerData.color,
-            // id will be assigned by leader
         }],
         roomState: 'connecting_to_lobby'
     });
@@ -620,11 +699,9 @@ export function joinRoomById(leaderPeerIdToJoin, joinerPlayerData) {
 
     ensurePeerInitialized({
         onPeerOpen: (myPeerId) => {
-            console.log(`[PeerConn] joinRoomById's ensurePeerInitialized successful for PeerID: ${myPeerId}. Global onPeerOpen will handle connection attempt.`);
-            // Update my player data with the obtained peerId
+            console.log(`[PeerConn] joinRoomById's local onPeerOpen for PeerID: ${myPeerId}. Global onPeerOpen will handle connection.`);
             if (state.networkRoomData.players && state.networkRoomData.players[0] && state.networkRoomData.players[0].peerId === null) {
                 state.networkRoomData.players[0].peerId = myPeerId;
-                state.setNetworkRoomData({ players: [...state.networkRoomData.players] }); // Ensure state update if needed
             }
         },
         onError: (err) => {
@@ -639,11 +716,16 @@ export function joinRoomById(leaderPeerIdToJoin, joinerPlayerData) {
 
 export function leaveRoom() {
     console.log("[PeerConn] Leaving room...");
-    ui.hideNetworkInfo(); // Hide QR code area when leaving a room
+    ui.hideNetworkInfo(); 
     if (state.networkRoomData.isRoomLeader) {
         broadcastToRoom({ type: 'error', message: 'El líder ha cerrado la sala.' }); 
         setTimeout(() => { 
-            connections.forEach(conn => conn.close());
+            connections.forEach(connEntry => { // connEntry can be a direct conn or {connObject, status}
+                const connToClose = connEntry.connObject || connEntry;
+                if (connToClose && typeof connToClose.close === 'function') {
+                    connToClose.close();
+                }
+            });
             connections.clear();
         }, 500);
     } else if (leaderConnection) {
@@ -652,9 +734,8 @@ export function leaveRoom() {
     leaderConnection = null;
     
     state.resetNetworkRoomData();
-    state.setPvpRemoteActive(false); // Set pvpRemoteActive to false
+    state.setPvpRemoteActive(false); 
     state.setGameActive(false);
-    // Caller (main.js) should handle UI transition (e.g., ui.showSetupScreen())
 }
 
 function sendDataToLeader(data) {
@@ -667,20 +748,22 @@ function sendDataToLeader(data) {
 }
 
 function sendDataToClient(clientPeerId, data) {
-    const conn = connections.get(clientPeerId);
+    const connEntry = connections.get(clientPeerId);
+    const conn = connEntry?.connObject || connEntry; // Handle both direct conn and wrapper
     if (conn && conn.open) {
         console.log(`[PeerConn L] TX to Client ${clientPeerId}: Type: ${data.type}`, data);
         conn.send(data);
     } else {
-        console.warn(`[PeerConn L] No open connection to client ${clientPeerId}. Cannot send data.`, data);
+        console.warn(`[PeerConn L] No open connection to client ${clientPeerId}. Cannot send data. Conn entry:`, connEntry);
     }
 }
 
 function broadcastToRoom(data, excludePeerId = null) { 
     if (!state.networkRoomData.isRoomLeader) return;
     console.log(`[PeerConn L] Broadcast TX: Type: ${data.type} (excluding ${excludePeerId || 'none'})`, data);
-    connections.forEach((conn, peerId) => {
-        if (peerId !== excludePeerId && conn.open) {
+    connections.forEach((connEntry, peerId) => {
+        const conn = connEntry?.connObject || connEntry; // Handle both direct conn and wrapper
+        if (peerId !== excludePeerId && conn && conn.open) {
             conn.send(data);
         }
     });
@@ -694,8 +777,8 @@ function broadcastRoomState() {
             players: state.networkRoomData.players,
             gameSettings: state.networkRoomData.gameSettings,
             maxPlayers: state.networkRoomData.maxPlayers,
-            leaderPeerId: state.networkRoomData.leaderPeerId, // Send leaderPeerId
-            roomId: state.networkRoomData.roomId // Send roomId
+            leaderPeerId: state.networkRoomData.leaderPeerId, 
+            roomId: state.networkRoomData.roomId 
         }
     });
 }
@@ -704,7 +787,6 @@ export function sendPlayerReadyState(isReady) {
         const leaderData = state.networkRoomData.players.find(p => p.peerId === state.myPeerId);
         if (leaderData) {
             leaderData.isReady = isReady;
-            // Update the players array in the state to reflect this change for the leader's own UI
             state.setNetworkRoomData({ players: [...state.networkRoomData.players] });
             broadcastToRoom({
                 type: MSG_TYPE.PLAYER_READY_CHANGED,
@@ -723,14 +805,14 @@ export function sendStartGameRequest() {
     if (!state.networkRoomData.isRoomLeader || state.networkRoomData.roomState === 'in_game') return;
 
     const canStart = state.networkRoomData.players.length >= state.MIN_PLAYERS_NETWORK &&
-                     state.networkRoomData.players.every(p => p.isReady && p.isConnected);
+                     state.networkRoomData.players.every(p => p.isReady && p.isConnected !== false);
 
     if (!canStart) {
         ui.updateLobbyMessage("No se puede iniciar: no todos los jugadores están listos o no hay suficientes.", true);
         return;
     }
     
-    ui.hideNetworkInfo(); // Hide QR before starting game
+    ui.hideNetworkInfo(); 
     state.setNetworkRoomData({ roomState: 'in_game' });
     state.setGameDimensions(state.networkRoomData.gameSettings.rows, state.networkRoomData.gameSettings.cols);
     
