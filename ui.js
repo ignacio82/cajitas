@@ -67,7 +67,9 @@ export function showLobbyScreen() {
     if (gameArea) gameArea.classList.add('hidden');
     if (lobbyArea) lobbyArea.classList.remove('hidden');
     if (mainTitle) mainTitle.textContent = "Sala de Espera";
-    hideQRCode(); // QR code is usually for sharing before lobby, or handled within lobby UI if needed
+    // Do not hide QR code here unconditionally.
+    // If the host just created the room, the QR code might still be relevant on the setup screen section
+    // or the calling function will manage its visibility.
     // updateLobbyUI will be called to populate details
 }
 
@@ -644,6 +646,17 @@ export function updateGameModeUI() {
             // If matchmaking was cancelled or finished, hide this specific message.
             // Other functions (like displayQRCode or updateLobbyUI) will manage networkInfoArea if needed.
             if (!state.networkRoomData.roomId) hideQRCode(); // Only hide if not in a room yet
+        } else if (state.pvpRemoteActive && state.networkRoomData.isRoomLeader && state.networkRoomData.roomId && (state.networkRoomData.roomState === 'waiting_for_players' || state.networkRoomData.roomState === 'creating_random_match_room')) {
+            // If we are hosting and waiting for players, ensure QR code area is visible.
+            // displayQRCode should have been called by peerConnection.js. This just ensures visibility.
+            if (networkInfoArea) networkInfoArea.classList.remove('hidden');
+        } else if (!state.pvpRemoteActive || (!state.networkRoomData.roomId && !isMatchmaking)) {
+            // If matchmaking was cancelled or finished, hide this specific message.
+            // Other functions (like displayQRCode or updateLobbyUI) will manage networkInfoArea if needed.
+            // If not in a room and not matchmaking, hide QR code.
+            if (networkInfoArea && networkInfoTitle.textContent !== "¡Sala Creada!") { // Don't hide if it's actively showing a created room ID
+                 hideQRCode();
+            }
         }
     }
 

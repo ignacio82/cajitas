@@ -53,14 +53,15 @@ const peerJsCallbacks = {
             // This peer just opened, and we intend to be a leader. Finalize room creation.
             state.setNetworkRoomData({ roomId: id, leaderPeerId: id });
             console.log(`[PeerConn] New Room Hosted. Room ID (Leader Peer ID): ${id}`);
-            const gameLink = `${CAJITAS_BASE_URL}/?room=${id}&slots=${state.networkRoomData.maxPlayers}`;
-            ui.displayQRCode(gameLink, `${state.CAJITAS_PEER_ID_PREFIX}${id}`,
-                `Compartí este enlace o ID para que ${state.networkRoomData.maxPlayers -1} jugador(es) más se unan:`);
 
             // Add self to player list in roomData (already done partially in hostNewRoom)
             // and show lobby.
             ui.showLobbyScreen();
             ui.updateLobbyUI();
+            // Display QR code *after* other UI changes, ensuring networkInfoArea is correctly managed by updateGameModeUI
+            const gameLink = `${CAJITAS_BASE_URL}/?room=${id}&slots=${state.networkRoomData.maxPlayers}`;
+            ui.displayQRCode(gameLink, `${state.CAJITAS_PEER_ID_PREFIX}${id}`,
+                `Compartí este enlace o ID para que ${state.networkRoomData.maxPlayers -1} jugador(es) más se unan:`);
             ui.updateGameModeUI();
 
             // If this was a random match host, update matchmaking service

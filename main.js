@@ -150,6 +150,10 @@ function setupEventListeners() {
             preferredPlayers: parseInt(document.getElementById('network-max-players').value),
             maxPlayers: parseInt(document.getElementById('network-max-players').value),
             minPlayers: 2,
+            gameSettings: { // Add gameSettings from current UI or defaults
+                rows: parseInt(document.getElementById('rows').value) || 4,
+                cols: parseInt(document.getElementById('cols').value) || 4,
+            }
         };
         
         ui.generatePlayerSetupFields(1, true);
@@ -185,14 +189,16 @@ function setupEventListeners() {
                             console.log(`[Main - Random Matching] Match found! Hosting new Room ID: ${newRoomId}`);
                             ui.hideModalMessage();
                             state.setNetworkRoomData({
-                                roomId: newRoomId,
-                                leaderPeerId: localPeerId,
+                                roomId: newRoomId, // This should be the localPeerId which becomes the room ID
+                                leaderPeerId: localPeerId, // localPeerId from the outer scope
                                 isRoomLeader: true,
-                                maxPlayers: initialRoomData.maxPlayers,
-                                gameSettings: initialRoomData.gameSettings,
+                                maxPlayers: initialRoomData.maxPlayers, // This comes from preferences
+                                gameSettings: initialRoomData.gameSettings, // THIS IS THE PROBLEM
                                 roomState: 'waiting_for_players',
                             });
-                            peerConnection.hostNewRoom(myPlayerData, initialRoomData.gameSettings, true);
+                            // The call to hostNewRoom is below, it uses initialRoomData.gameSettings from 'preferences'
+                            // which might not be the same as what's set in setNetworkRoomData above.
+                            peerConnection.hostNewRoom(myPlayerData, initialRoomData.gameSettings, true); // Error happens here
                             if (cancelMatchmakingButton) cancelMatchmakingButton.classList.add('hidden');
                         },
                         onError: (errMsg) => {
