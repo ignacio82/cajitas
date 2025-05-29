@@ -84,6 +84,37 @@ async function cleanupStaleRooms() {
     }
 }
 
+/**
+ * Removes a room from Supabase if the PeerJS host is found to be unavailable.
+ * @param {string} deadPeerId - The raw PeerJS ID (without prefix) of the host whose room should be removed.
+ */
+export async function removeDeadRoomByPeerId(deadPeerId) {
+  if (!supabase || !deadPeerId) {
+    console.warn('[Matchmaking removeDeadRoomByPeerId] Supabase not init or deadPeerId missing.');
+    return;
+  }
+  const deadRoomIdWithPrefix = `${state.CAJITAS_PEER_ID_PREFIX}${deadPeerId}`;
+  console.log(`[Matchmaking removeDeadRoomByPeerId] Attempting to remove room: ${deadRoomIdWithPrefix} for dead peer: ${deadPeerId}`);
+  try {
+    const { data, error } = await supabase
+      .from(MATCHMAKING_TABLE)
+      .delete()
+      .eq('room_id', deadRoomIdWithPrefix);
+
+    if (error) {
+      console.warn(`[Matchmaking removeDeadRoomByPeerId] Failed to clean up dead room ${deadRoomIdWithPrefix}:`, error.message);
+    } else {
+      if (data && data.length > 0) {
+        console.log(`[Matchmaking removeDeadRoomByPeerId] Successfully cleaned up dead room: ${deadRoomIdWithPrefix}`);
+      } else {
+        console.log(`[Matchmaking removeDeadRoomByPeerId] No room found with ID ${deadRoomIdWithPrefix} to clean up, or it was already gone.`);
+      }
+    }
+  } catch (e) {
+    console.error(`[Matchmaking removeDeadRoomByPeerId] Exception while cleaning up dead room ${deadRoomIdWithPrefix}:`, e);
+  }
+}
+
 export async function joinQueue(localRawPeerId, myPlayerData, preferences, callbacks) {
     console.log('[Matchmaking] joinQueue called. My PeerID (raw):', localRawPeerId, "Prefs:", preferences);
     if (!initSupabase()) {
@@ -101,7 +132,7 @@ export async function joinQueue(localRawPeerId, myPlayerData, preferences, callb
     callbacks.onSearching?.();
     const localSupabasePeerId = `${state.CAJITAS_PEER_ID_PREFIX}${localRawPeerId}`;
 
-    await leaveQueue(localRawPeerId, false);
+    await leaveQueue(localRawPeerId, false); // Remove any existing listing for this peer before starting a new search/host
 
     try {
         console.log('[Matchmaking] Phase 1: Looking for existing, valid rooms...');
@@ -118,9 +149,9 @@ export async function joinQueue(localRawPeerId, myPlayerData, preferences, callb
             .select('*')
             .eq('status', 'hosting_waiting_for_players')
             .eq('game_type', 'cajitas')
-            .lt('current_players', preferredMaxPlayers)
-            .gte('max_players', preferredMaxPlayers)
-            .gt('expires_at', nowISO)
+            .lt('current_players', preferredMaxPlayers) // Room must have space
+            .gte('max_players', preferredMaxPlayers) // Room must allow for at least preferredMaxPlayers
+            .gt('expires_at', nowISO) // Room must not be expired
             .order('created_at', { ascending: true });
 
         if (fetchError) {
@@ -130,36 +161,39 @@ export async function joinQueue(localRawPeerId, myPlayerData, preferences, callb
         }
 
         if (openRooms && openRooms.length > 0) {
-            const suitableRoom = openRooms[0];
+            const suitableRoom = openRooms[0]; // Try the oldest suitable room
             console.log('[Matchmaking] Found suitable room to join:', suitableRoom);
 
             const leaderRawPeerId = suitableRoom.room_id.startsWith(state.CAJITAS_PEER_ID_PREFIX)
                 ? suitableRoom.room_id.substring(state.CAJITAS_PEER_ID_PREFIX.length)
                 : suitableRoom.room_id;
 
+            // This callback will trigger peerConnection.joinRoomById(...)
+            // If that join fails due to peer-unavailable, peerConnection.js should call removeDeadRoomByPeerId.
             callbacks.onMatchFoundAndJoiningRoom?.(
-                suitableRoom.room_id,
-                leaderRawPeerId,
+                suitableRoom.room_id, // This is the prefixed room_id from Supabase
+                leaderRawPeerId,      // This is the raw peerId for PeerJS connection
                 {
                     maxPlayers: suitableRoom.max_players,
-                    gameSettings: suitableRoom.game_settings || preferences.gameSettings,
-                    players: [],
-                    currentPlayers: suitableRoom.current_players
+                    gameSettings: suitableRoom.game_settings || preferences.gameSettings, // Fallback to user's preferred settings if not in DB
+                    players: [], // Player list will be populated by the host
+                    currentPlayers: suitableRoom.current_players // Info about current occupancy
                 }
             );
-            return;
+            return; // Found a room, attempt to join is initiated by callback
         }
 
+        // Phase 2: No suitable rooms found, become a host.
         console.log('[Matchmaking] Phase 2: No suitable rooms found. Becoming a host.');
-        localPlayerHostedRoomId_Supabase = localSupabasePeerId;
+        localPlayerHostedRoomId_Supabase = localSupabasePeerId; // Our own peer ID (prefixed) is the room_id
 
         const newRoomEntry = {
-            peer_id: localSupabasePeerId,
-            room_id: localSupabasePeerId,
+            peer_id: localSupabasePeerId, // Who owns this entry
+            room_id: localSupabasePeerId, // The ID of the room (our PeerJS ID, prefixed)
             status: 'hosting_waiting_for_players',
             game_type: 'cajitas',
             max_players: preferences.maxPlayers,
-            current_players: 1,
+            current_players: 1, // Starts with us, the host
             game_settings: preferences.gameSettings,
             expires_at: new Date(Date.now() + ROOM_EXPIRATION_MINUTES * 60 * 1000).toISOString()
         };
@@ -169,9 +203,9 @@ export async function joinQueue(localRawPeerId, myPlayerData, preferences, callb
             .insert(newRoomEntry);
 
         if (insertError) {
-            if (insertError.code === '23505') {
-                console.warn('Race condition: Duplicate room. Restarting matchmaking.');
-                callbacks.onError?.('Otro jugador se unió justo antes que tú. Intenta de nuevo.');
+            if (insertError.code === '23505') { // Unique constraint violation (e.g., room_id already exists)
+                console.warn('[Matchmaking] Race condition or stale entry: Could not insert new room due to existing room_id. Consider re-queue.', insertError);
+                callbacks.onError?.('Error al crear sala: la sala ya existe o hubo un conflicto. Intentá de nuevo.');
             } else {
                 console.error('[Matchmaking] Error inserting new room:', insertError);
                 callbacks.onError?.(`No se pudo crear una nueva sala: ${insertError.message}`);
@@ -180,17 +214,18 @@ export async function joinQueue(localRawPeerId, myPlayerData, preferences, callb
             return;
         }
 
+        // Start refreshing the expiration time for the hosted room
         hostRefreshIntervalId = setInterval(() => {
             refreshRoomExpiration(localSupabasePeerId);
         }, ROOM_REFRESH_INTERVAL_MS);
         console.log(`[Matchmaking] Started refresh interval (ID: ${hostRefreshIntervalId}) for room ${localSupabasePeerId}`);
 
         callbacks.onMatchFoundAndHostingRoom?.(
-            localRawPeerId,
+            localRawPeerId, // Our raw peer ID to be used for hosting with PeerJS
             {
                 maxPlayers: preferences.maxPlayers,
                 gameSettings: preferences.gameSettings,
-                players: [
+                players: [ // Initial player data for the host
                     { ...myPlayerData, id: 0, peerId: localRawPeerId, isReady: true, isConnected: true, score: 0 }
                 ]
             }
@@ -210,10 +245,13 @@ export async function leaveQueue(localRawPeerIdToLeave = null, performCleanup = 
 
     if (performCleanup) {
         cleanupMatchmakingState();
-    } else if (hostRefreshIntervalId) {
+    } else if (hostRefreshIntervalId && peerIdToRemove === localPlayerHostedRoomId_Supabase) {
+        // If not full cleanup, but we are leaving the room we were hosting via interval, clear that interval
         clearInterval(hostRefreshIntervalId);
         hostRefreshIntervalId = null;
+        console.log(`[Matchmaking] Stopped refresh interval for ${peerIdToRemove} due to leaveQueue (not full cleanup).`);
     }
+
 
     if (peerIdToRemove && supabase) {
         console.log(`[Matchmaking] Removing Supabase entry for room/peer: ${peerIdToRemove}`);
@@ -244,19 +282,24 @@ export async function updateHostedRoomStatus(hostRawPeerId, gameSettings, maxPla
     const hostSupabasePeerId = `${state.CAJITAS_PEER_ID_PREFIX}${hostRawPeerId}`;
 
     let statusToSet = newStatus;
-    if (!statusToSet) {
+    if (!statusToSet) { // If no explicit newStatus, determine based on game state
         if (state.networkRoomData.roomState === 'in_game') {
             statusToSet = 'in_game';
+            // If the game starts and this client is the one who listed it for matchmaking, stop the refresh interval
             if (hostSupabasePeerId === localPlayerHostedRoomId_Supabase && hostRefreshIntervalId) {
-                console.log(`[Matchmaking] Game started. Stopping expiration refresh for ${hostSupabasePeerId}`);
+                console.log(`[Matchmaking] Game started for room ${hostSupabasePeerId}. Stopping expiration refresh and setting status to 'in_game'.`);
                 clearInterval(hostRefreshIntervalId);
                 hostRefreshIntervalId = null;
+                // Update status and remove expiration for 'in_game' rooms
                 try {
-                    await supabase.from(MATCHMAKING_TABLE).update({ status: 'in_game', expires_at: null, current_players: currentPlayers })
+                    await supabase.from(MATCHMAKING_TABLE)
+                                  .update({ status: 'in_game', expires_at: null, current_players: currentPlayers })
                                   .eq('room_id', hostSupabasePeerId);
-                    return;
+                    console.log(`[Matchmaking] Room ${hostSupabasePeerId} status set to 'in_game', expiration removed.`);
+                    return; // Exit after this specific update for 'in_game'
                 } catch(e) {
-                    console.error("Error setting room to in_game:", e);
+                    console.error("[Matchmaking] Error setting room to in_game:", e);
+                    // Fall through to general update if this fails, though it ideally shouldn't.
                 }
             }
         } else if (currentPlayers >= maxPlayers) {
@@ -273,9 +316,26 @@ export async function updateHostedRoomStatus(hostRawPeerId, gameSettings, maxPla
         max_players: maxPlayers
     };
 
+    // If we are (re)listing as waiting_for_players, ensure expires_at is set/refreshed
     if (statusToSet === 'hosting_waiting_for_players') {
         updatePayload.expires_at = new Date(Date.now() + ROOM_EXPIRATION_MINUTES * 60 * 1000).toISOString();
+        // If this is our hosted room and the interval wasn't running, start it
+        if (hostSupabasePeerId === localPlayerHostedRoomId_Supabase && !hostRefreshIntervalId) {
+            hostRefreshIntervalId = setInterval(() => {
+                refreshRoomExpiration(hostSupabasePeerId);
+            }, ROOM_REFRESH_INTERVAL_MS);
+            console.log(`[Matchmaking] Restarted refresh interval for room ${hostSupabasePeerId} due to status update to waiting.`);
+        }
+    } else if (statusToSet === 'full' || statusToSet === 'in_game') {
+        // If room becomes full or in_game, clear its expiration refresh interval if we were hosting it
+        if (hostSupabasePeerId === localPlayerHostedRoomId_Supabase && hostRefreshIntervalId) {
+            console.log(`[Matchmaking] Room ${hostSupabasePeerId} is now ${statusToSet}. Stopping expiration refresh.`);
+            clearInterval(hostRefreshIntervalId);
+            hostRefreshIntervalId = null;
+            updatePayload.expires_at = null; // Explicitly nullify expiration for full/in_game rooms
+        }
     }
+
 
     const { error } = await supabase
         .from(MATCHMAKING_TABLE)
@@ -284,7 +344,9 @@ export async function updateHostedRoomStatus(hostRawPeerId, gameSettings, maxPla
 
     if (error) {
         console.error(`[Matchmaking] Error updating room ${hostSupabasePeerId} to status ${statusToSet}:`, error);
+    } else {
+        console.log(`[Matchmaking] Successfully updated room ${hostSupabasePeerId} status to ${statusToSet}. Players: ${currentPlayers}/${maxPlayers}`);
     }
 }
 
-console.log('[Matchmaking] Module loaded with expiration logic.');
+console.log('[Matchmaking] Module loaded with expiration logic and dead room cleanup function.');
